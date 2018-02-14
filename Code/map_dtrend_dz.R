@@ -6,7 +6,7 @@
 # plot_title is the title that will be put on the resulting plot
 # bbox is the bounding box within which computations are completed
 
-map_dtrend_dz <- function(trend, var, grid_res, search_radius, min_stations, figdir, figname, bbox=c(-125,30,-100,53)){
+map_dtrend_dz <- function(trend, var, grid_res, search_radius, min_stations, figdir, figname, bbox=c(-125,30,-100,53), pval=0.10){
 
   library(ggplot2)
   library(cowplot) #plot_grid
@@ -28,10 +28,12 @@ map_dtrend_dz <- function(trend, var, grid_res, search_radius, min_stations, fig
       glat <- griddf$lat[ii]
       glon <- griddf$lon[ii]
       st <- dat[dat$lat>(glat-search_radius) & dat$lat<(glat+search_radius) & dat$lon>(glon-search_radius) & dat$lon<(glon+search_radius),]
-      mod <- summary(lm(st[[paste0(seasons[season],'_slope')]] ~ st$elev))
       
-      if (nrow(st)>=min_stations & diff(range(st$elev))>500 & mod$coefficients[8]<pval){
-        griddf$dtdz[ii] <- mod$coefficients[2] *1000
+      if (nrow(st)>=min_stations & diff(range(st$elev))>500){
+        mod <- summary(lm(st[[paste0(seasons[season],'_slope')]] ~ st$elev))
+        if (mod$coefficients[8]<pval){
+          griddf$dtdz[ii] <- mod$coefficients[2] *1000
+        }
       }
     }
   

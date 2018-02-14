@@ -7,7 +7,7 @@ varname1 <- paste0('tmax_',datatype)
 varname2 <- paste0('tmin_',datatype)
 startdate <- '1980-01-01' # these should correspond to calendar years to work with the trend analysis
 enddate <- '2015-12-31'
-exclude <-  character()#'SNOTEL' # character()#default is
+exclude <-  character()#'SNOTEL' # default is
 bbox <- c(-125,30,-100,53)
 min_pdays <- 0.85  # minimum percent of days of data within each year
 min_pyrs <- 0.90 # minimum percent of years of data at each station for the period defined above
@@ -172,3 +172,15 @@ source(paste0(codedir,'make_EDW_trends_lattice_plot.R'))
       print(tmin_map)
     }
   }
+
+    
+# 6. Map dTrend/dZ (a metric of EDW)
+#..............................................................................
+    source(paste0(codedir,'map_dtrend_dz.R'))
+    map_dtrend_dz(tmax_trends, var='tmax', grid_res=.5, search_radius=1, min_stations=8, figdir, figname)
+    map_dtrend_dz(tmin_trends, var='tmin', grid_res=.5, search_radius=1, min_stations=8, figdir, figname)
+    
+    
+    
+    
+    
