@@ -2,21 +2,22 @@
 
 # 0. Set these variables:
 #.........................................................
-varname1 <- 'tmax_raw'
-varname2 <- 'tmin_raw'
+datatype <- 'homog' # 'raw','homog',or 'infilled'
+varname1 <- paste0('tmax_',datatype)
+varname2 <- paste0('tmin_',datatype)
 startdate <- '1980-01-01' # these should correspond to calendar years to work with the trend analysis
 enddate <- '2015-12-31'
-exclude <-  'SNOTEL' # character()#default is
+exclude <-  character()#'SNOTEL' # character()#default is
 bbox <- c(-125,30,-100,53)
 min_pdays <- 0.85  # minimum percent of days of data within each year
 min_pyrs <- 0.90 # minimum percent of years of data at each station for the period defined above
 savefigs <- T
-figname <- paste0('GHCN_raw_',as.character(min_pdays),'pd_',as.character(min_pyrs),'py_st',substr(startdate,1,4))
-figdir <- paste0('Documents/IGERT/EDW/Temperature_analysis/Figures/GHCN_raw_',substr(startdate,1,4),'/')
+figname <- paste0('ALL_',datatype,'_',as.character(min_pdays),'pd_',as.character(min_pyrs),'py_st',substr(startdate,1,4))
+figdir <- paste0('Figures/ALL_',datatype,'_',substr(startdate,1,4),'/')
 brks <- c(30,34,38,42,46,53) # latitude breaks to create bins
 
 
-codedir <- 'Documents/IGERT/EDW/Temperature_analysis/Code/'
+codedir <- 'Code/'
 seasons <- c('Annual','Winter','Spring','Summer','Fall')
 
 # 1. Get TopoWx data
@@ -36,8 +37,7 @@ tmin <- tmin[[2]]
 
 # 2. Map the stations you selected
 #.......................................................................
-mapdir <-'/Volumes/Macintosh HD/Users/abbylute/Documents/IGERT/Coldwater/AbbysProject/Code/Map/'
-source(paste0(mapdir,'FIX_get_stamenmap_RCode.R')) #ignore png warning
+source('Code/FIX_get_stamenmap_RCode.R') #ignore png warning
 library(ggmap) #get_stamenmap
 
 gm <- get_stamenmap(bbox,maptype="toner",zoom=6)  
