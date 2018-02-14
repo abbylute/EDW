@@ -10,7 +10,7 @@ get_topowx_data <- function(varname, startdate, enddate,
 
   library(ncdf4)
   library(mgcv)
-  datadir <- 'Documents/IGERT/Data/TopoWx/'
+  datadir <- 'Data/TopoWx/'
   #outdir <- 'Documents/IGERT/EDW/Temperature_analysis/'
   nc <- nc_open(paste0(datadir,'stn_obs_',var,'.nc'),write=FALSE)
 
@@ -33,7 +33,7 @@ get_topowx_data <- function(varname, startdate, enddate,
   elev <- ncvar_get(nc,'elevation')
   station_id <- as.character(ncvar_get(nc,'station_id'))
   network <- substr(station_id,1,4)
-  snotel_meta <- read.csv('Documents/IGERT/Data/SNOTEL/SNOTEL_metadata.csv',header=T,skip=988)
+  snotel_meta <- read.csv('Data/SNOTEL/SNOTEL_metadata.csv',header=T,skip=988)
   xx <- which(substr(station_id,6,nchar(station_id)) %in% snotel_meta$Acton.Id)
   network[xx] <- "SNOTEL"
   
