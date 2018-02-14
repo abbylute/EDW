@@ -4,7 +4,7 @@
 
 plot_EDW_trend_transects <- function(meta, brks, cols='black', maintitle){
   
-  source('Documents/IGERT/EDW/Temperature_analysis/Code/get_elev_transects.R')
+  source('Code/get_elev_transects.R')
   library(ggplot2)
   library(cowplot) #plot_grid
   library(colorRamps)
