@@ -1,0 +1,13 @@
+---
+title: "Trying R Markdown"
+author: "AL"
+date: "2/14/2018"
+output: github_document
+---
+This is my first markdown document
+```{r}
+tt <- read.table('Temperature_analysis/Tmax_meta.txt')
+dim(tt)
+head(tt)
+```
+
