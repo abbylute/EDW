@@ -44,6 +44,8 @@ ggplot(data=season_lapse_rates,aes(x=year,y=lapse,group=season)) +  geom_line() 
 
 #################
 # Compute free-air lapse rates for each lat/lon column for each year and month using only levels above the reanalysis land surface
+rtse= T  # if rtse (restrict to station elevations) is T, then only free-air observations within the range of stations elevations are used to calculate free-air lapse rates
+         # if rtse is F, then free-air observations are only bounded on the bottom by the reanalysis land surface height
 library(ncdf4)
   dirr <- 'Data/era-i-heights/'
   files <- list.files(dirr, pattern='heights')
@@ -78,7 +80,7 @@ for (yy in 1:length(files)){
   
   temp <- ncvar_get(nc,'t',start=c(min(d1),min(d2),1,1),count=c(length(d1),length(d2),-1,-1)) -273.15 # grab temperatures and convert to C
   geop <- ncvar_get(nc,'z',start=c(min(d1),min(d2),1,1),count=c(length(d1),length(d2),-1,-1)) / 9.8
-  #########
+
   # make temp into a data.frame:
   tt <- as.data.frame.table(temp,responseName='temp')
   names(tt) <- c('lon','lat','level','month','temp')
@@ -94,46 +96,39 @@ for (yy in 1:length(files)){
   dd <- join(dd,lh, by=c('lon','lat')) # join with land height data
   dd <- dd %>% filter(geop > landz) # remove observations where the geopotential height measurement is below land surface
   
-  ##########
-  #temp <- apply(temp,c(3,4),mean) # average over the bounding box to get a temperature for each height and month in this year
-  #geop <- apply(geop,c(3,4),mean)
+  if (rtse==T){ # to restrict free-air lapse rate calculations to the range of station elevations for comparison
+    dd <- dd %>% filter(geop>min(sub_tmax_meta$elev) & geop<max(sub_tmax_meta$elev))
+  }
   
   ## Calculate lapse rate in each lat/lon column
   dd <- dd %>% group_by(lon,lat,month) %>%
     mutate(lapse = summary(lm(temp~geop))$coefficients[2]*1000)
-  
-  
-  #temp <- cbind(levels,data.frame(temp)); #names(temp2) <- c('height',paste0('m',c(1:12)))
-  #temp <- gather(temp,key=month,value=temperature, 2:13)
-  #temp$month <- factor(temp$month)
-  #levels(temp$month)=c('01','02','03','04','05','06','07','08','09','10','11','12')
-  #temp <- temp %>% left_join(seasons, by = "month")
-  
-  #geop <- cbind(levels,data.frame(geop)); #names(temp2) <- c('height',paste0('m',c(1:12)))
-  #geop <- gather(geop,key=month,value=height, 2:13)
-  #geop$month <- factor(geop$month)#, 
-  #levels(geop$month)=c('01','02','03','04','05','06','07','08','09','10','11','12')
-  #geop <- geop %>% left_join(seasons, by='month')
-  
-  #jj <- left_join(temp,geop, by=c('levels','month','season'))
-  #jj <- jj %>% group_by(season) %>% summarise(lapse=summary(lm(temperature~height))$coefficients[2]*1000)
-  #jj <- jj %>% group_by(month,season) %>% summarise(lapse=summary(lm(temperature~height))$coefficients[2]*1000)
+
   dd <- bind_cols(year=rep(year[yy],nrow(dd)),dd)
-  #jj <- cbind(year=rep(year[yy],4),jj, stringsAsFactors=F)
   free_air <- bind_rows(free_air, dd)
 } # end yearly file loop
 
+# join free_air df with seasons to make it compatible with the station lapse rate calculations:
+  seasons_numeric <- seasons; seasons_numeric$month <- as.integer(seasons_numeric$month)
+  free_air <- join(free_air,seasons_numeric, by='month')
+  
+# calculate the seasonal mean lapse rates as the average of the monthly lapse rates already calculated
+  fa <- free_air %>% group_by(year,lat,lon,season) %>% summarise(lapse_seasonal = mean(lapse))
+# average seasonal lapse rates over the domain for comparison with stations:
+  fa <- fa %>% group_by(year,season) %>% summarise(lapse_seasonal=mean(lapse_seasonal))
 
+  
+# join the near-surface and free-air lapse rates:
+  unique(free_air$year)
+  unique(season_lapse_rates$year)
+  fa <- fa %>% filter(year>1979, year<2016) 
+  ns <- season_lapse_rates %>% filter(year>1979, year<2016)
+  names(fa) <- c('year','season','fa_lapse')
+  ns <- select(ns,year,season,lapse); names(ns) <- c('year','season','ns_lapse')
+  lapse <- left_join(fa,ns, by=c('year','season'))
 
-unique(free_air$year)
-unique(season_lapse_rates$year)
-
-fa <- free_air %>% filter(year>1979, year<2016) 
-ns <- season_lapse_rates %>% filter(year>1979, year<2016)
-fa <- select(fa,year,season,lapse); names(fa) <- c('year','season','fa_lapse')
-ns <- select(ns,year,season,lapse); names(ns) <- c('year','season','ns_lapse')
-lapse <- join(fa,ns)
-
+  
+# seasonal correlations between free-air and near-surface lapse rates:
 lapse %>% group_by(season) %>%
   summarise(corr=cor(fa_lapse,ns_lapse)^2) # this gives R-squared value
 
