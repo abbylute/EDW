@@ -3,29 +3,31 @@ library(plyr)
 library(dplyr)
 library(tidyr)
 
+varname <- 'tmax'  # specify tmax or tmin
+meta <- tmax_meta
+temps <- tmax
+
 sub_bbox <- c(-113,42,-110,45)
 
-ss <- which(tmax_meta$lat>sub_bbox[2] & tmax_meta$lat<sub_bbox[4] & tmax_meta$lon>sub_bbox[1] & tmax_meta$lon<sub_bbox[3])
-sub_tmax_meta<- tmax_meta[ss,]
-sub_tmax <- data.frame(tmax[ss,])  
+ss <- which(meta$lat>sub_bbox[2] & meta$lat<sub_bbox[4] & meta$lon>sub_bbox[1] & meta$lon<sub_bbox[3])
+meta<- meta[ss,]
+temps <- data.frame(temps[ss,])  
 cal <- seq(as.Date(startdate),as.Date(enddate),'days')
 
-ggmap(gm) +
-  geom_point(data=sub_tmax_meta, aes(x=lon, y=lat,color=elev),size=1)+
-  scale_color_gradientn(name="Elevation", colors=rainbow(20))+
-  theme(legend.key=element_rect(fill="white")) +
-  coord_map(ylim=bbox[c(2,4)], xlim=bbox[c(1,3)]) +
-  labs(y='', x='' )
+#ggmap(gm) +
+#  geom_point(data=sub_tmax_meta, aes(x=lon, y=lat,color=elev),size=1)+
+##  scale_color_gradientn(name="Elevation", colors=rainbow(20))+
+#  theme(legend.key=element_rect(fill="white")) +
+#  coord_map(ylim=bbox[c(2,4)], xlim=bbox[c(1,3)]) +
+#  labs(y='', x='' )
 
-sub_tmax <- cbind(sub_tmax_meta,sub_tmax)
-tm <- sub_tmax %>% gather(key=date, value=tmax, 6:ncol(sub_tmax))
+temps <- cbind(meta,temps)
+tm <- temps %>% gather(key=date, value=temperature, 6:ncol(temps))
 
-datedf <- data.frame(date=c(colnames(sub_tmax[6:ncol(sub_tmax)])), datenm=cal, stringsAsFactors=F)
+datedf <- data.frame(date=c(colnames(temps[6:ncol(temps)])), datenm=cal, stringsAsFactors=F)
 tm <- left_join(tm,datedf, by='date')
 tm <- tm %>% select(-date)
 names(tm)[ncol(tm)] <- 'date'
-#tm$date <- factor(tm$date)
-#levels(tm$date) <- cal
 tm <- tm %>% separate(date, into=c('year','month','day'),sep='-',remove=F)
 tm <- arrange(tm,station_id,date)
 
@@ -37,11 +39,11 @@ tm2 <- tm %>% left_join(seasons, by = "month")
 
 season_means <- tm2 %>%
   group_by(station_id,season,year) %>%
-  mutate(smtmax = mean(tmax,na.rm=T)) %>% select(-tmax,-date,-month,-day)
-season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(smtmax))
+  mutate(smtemp = mean(temperature,na.rm=T)) %>% select(-temperature,-date,-month,-day)
+season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(smtemp))
 
 season_lapse_rates <- season_means %>% group_by(season,year) %>%
-  summarise(lapse=summary(lm(smtmax~elev))$coefficients[2]*1000)
+  summarise(lapse=summary(lm(smtemp~elev))$coefficients[2]*1000)
 
 ggplot(data=season_lapse_rates,aes(x=year,y=lapse,group=season)) +  geom_line() + facet_wrap(~season)
 
@@ -102,7 +104,7 @@ for (yy in 1:length(files)){
   dd <- dd %>% filter(geop > landz) # remove observations where the geopotential height measurement is below land surface
   
   if (rtse==T){ # to restrict free-air lapse rate calculations to the range of station elevations for comparison
-    dd <- dd %>% filter(geop > (min(sub_tmax_meta$elev)-200) & geop < (max(sub_tmax_meta$elev)+200))
+    dd <- dd %>% filter(geop > (min(meta$elev)-200) & geop < (max(meta$elev)+200))
   }
   
   ## Calculate lapse rate in each lat/lon column
@@ -143,25 +145,24 @@ lapse2 <- lapse %>% gather(key='metric',value='lapse',fa_lapse,ns_lapse)
 gg <- ggplot(lapse2,aes(x=year,y=lapse,group=metric,color=metric)) +
   geom_line() +
   geom_text(inherit.aes=F, data=corr, aes(x=6,y=-1,label=paste0('R^2=',corr))) +
-  labs(y='Lapse Rate (C/km)', title='Seasonal lapse rates',subtitle=substr(figdir,9,nchar(figdir)-1)) +
+  labs(y='Lapse Rate (C/km)', title=paste0('Seasonal ',varname,' lapse rates'),subtitle=substr(figdir,9,nchar(figdir)-1)) +
   scale_color_manual('',values=c('darkgreen','purple'),labels=c('free-air','near-surface')) +
   scale_x_discrete(labels=seq(1980,2020,5),breaks=seq(1980,2020,5)) +
   facet_wrap(~factor(season,levels=c("Spring","Summer","Fall","Winter")))
-  #facet_wrap(~season)
 gg
 
-jpeg(filename=paste0(figdir,'fa_ns_seasonal_lapse_rates.jpeg'),width=10,height=7,units="in",res=500,quality=100)
+jpeg(filename=paste0(figdir,varname,'_seasonal_lapse_rates.jpeg'),width=10,height=7,units="in",res=500,quality=100)
 print(gg)
 dev.off()
 
 
-gg <- ggplot(lapse,aes(x=ns_lapse,y=fa_lapse)) +
-  geom_point() +
-  facet_wrap(~season)
-gg
-xx <- which(lapse$season=='Summer')
-plot(lapse$ns_lapse[xx],lapse$fa_lapse[xx])
-abline(0,1)
+#gg <- ggplot(lapse,aes(x=ns_lapse,y=fa_lapse)) +
+#  geom_point() +
+#  facet_wrap(~season)
+#gg
+#xx <- which(lapse$season=='Summer')
+##plot(lapse$ns_lapse[xx],lapse$fa_lapse[xx])
+#abline(0,1)
 
 #################
 #TRYING TO OPEN CALIPSO DATA:
