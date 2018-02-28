@@ -19,8 +19,13 @@ ggmap(gm) +
 
 sub_tmax <- cbind(sub_tmax_meta,sub_tmax)
 tm <- sub_tmax %>% gather(key=date, value=tmax, 6:ncol(sub_tmax))
-tm$date <- factor(tm$date)
-levels(tm$date) <- cal
+
+datedf <- data.frame(date=c(colnames(sub_tmax[6:ncol(sub_tmax)])), datenm=cal, stringsAsFactors=F)
+tm <- left_join(tm,datedf, by='date')
+tm <- tm %>% select(-date)
+names(tm)[ncol(tm)] <- 'date'
+#tm$date <- factor(tm$date)
+#levels(tm$date) <- cal
 tm <- tm %>% separate(date, into=c('year','month','day'),sep='-',remove=F)
 tm <- arrange(tm,station_id,date)
 
@@ -35,7 +40,6 @@ season_means <- tm2 %>%
   mutate(smtmax = mean(tmax,na.rm=T)) %>% select(-tmax,-date,-month,-day)
 season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(smtmax))
 
-
 season_lapse_rates <- season_means %>% group_by(season,year) %>%
   summarise(lapse=summary(lm(smtmax~elev))$coefficients[2]*1000)
 
@@ -46,6 +50,7 @@ ggplot(data=season_lapse_rates,aes(x=year,y=lapse,group=season)) +  geom_line() 
 # Compute free-air lapse rates for each lat/lon column for each year and month using only levels above the reanalysis land surface
 rtse= T  # if rtse (restrict to station elevations) is T, then only free-air observations within the range of stations elevations are used to calculate free-air lapse rates
          # if rtse is F, then free-air observations are only bounded on the bottom by the reanalysis land surface height
+         # NOTE: this removes a lot of observations since many free air obs are at >3000m
 library(ncdf4)
   dirr <- 'Data/era-i-heights/'
   files <- list.files(dirr, pattern='heights')
@@ -97,7 +102,7 @@ for (yy in 1:length(files)){
   dd <- dd %>% filter(geop > landz) # remove observations where the geopotential height measurement is below land surface
   
   if (rtse==T){ # to restrict free-air lapse rate calculations to the range of station elevations for comparison
-    dd <- dd %>% filter(geop>min(sub_tmax_meta$elev) & geop<max(sub_tmax_meta$elev))
+    dd <- dd %>% filter(geop > (min(sub_tmax_meta$elev)-200) & geop < (max(sub_tmax_meta$elev)+200))
   }
   
   ## Calculate lapse rate in each lat/lon column
@@ -113,9 +118,9 @@ for (yy in 1:length(files)){
   free_air <- join(free_air,seasons_numeric, by='month')
   
 # calculate the seasonal mean lapse rates as the average of the monthly lapse rates already calculated
-  fa <- free_air %>% group_by(year,lat,lon,season) %>% summarise(lapse_seasonal = mean(lapse))
+  fa <- free_air %>% group_by(year,lat,lon,season) %>% summarise(lapse_seasonal = mean(lapse, na.rm=T))
 # average seasonal lapse rates over the domain for comparison with stations:
-  fa <- fa %>% group_by(year,season) %>% summarise(lapse_seasonal=mean(lapse_seasonal))
+  fa <- fa %>% group_by(year,season) %>% summarise(lapse_seasonal=mean(lapse_seasonal, na.rm=T))
 
   
 # join the near-surface and free-air lapse rates:
@@ -134,12 +139,23 @@ lapse %>% group_by(season) %>%
 
 lapse2 <- lapse %>% gather(key='metric',value='lapse',fa_lapse,ns_lapse)
 
-ggplot(lapse2,aes(x=year,y=lapse,group=metric,color=metric)) +
+gg <- ggplot(lapse2,aes(x=year,y=lapse,group=metric,color=metric)) +
   geom_line() +
   facet_wrap(~season)
+gg
+
+jpeg(filename=paste0(figdir,'fa_ns_seasonal_lapse_rates_rtse.jpeg'),width=6,height=7,units="in",res=500,quality=100)
+print(gg)
+dev.off()
 
 
-
+gg <- ggplot(lapse,aes(x=ns_lapse,y=fa_lapse)) +
+  geom_point() +
+  facet_wrap(~season)
+gg
+xx <- which(lapse$season=='Summer')
+plot(lapse$ns_lapse[xx],lapse$fa_lapse[xx])
+abline(0,1)
 
 #################
 #TRYING TO OPEN CALIPSO DATA:
