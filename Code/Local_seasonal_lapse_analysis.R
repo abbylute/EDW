@@ -134,17 +134,23 @@ for (yy in 1:length(files)){
 
   
 # seasonal correlations between free-air and near-surface lapse rates:
-lapse %>% group_by(season) %>%
-  summarise(corr=cor(fa_lapse,ns_lapse)^2) # this gives R-squared value
+corr <- lapse %>% group_by(season) %>%
+  summarise(corr=signif(cor(fa_lapse,ns_lapse)^2,2)) # this gives R-squared value
+
 
 lapse2 <- lapse %>% gather(key='metric',value='lapse',fa_lapse,ns_lapse)
 
 gg <- ggplot(lapse2,aes(x=year,y=lapse,group=metric,color=metric)) +
   geom_line() +
-  facet_wrap(~season)
+  geom_text(inherit.aes=F, data=corr, aes(x=6,y=-1,label=paste0('R^2=',corr))) +
+  labs(y='Lapse Rate (C/km)', title='Seasonal lapse rates',subtitle=substr(figdir,9,nchar(figdir)-1)) +
+  scale_color_manual('',values=c('darkgreen','purple'),labels=c('free-air','near-surface')) +
+  scale_x_discrete(labels=seq(1980,2020,5),breaks=seq(1980,2020,5)) +
+  facet_wrap(~factor(season,levels=c("Spring","Summer","Fall","Winter")))
+  #facet_wrap(~season)
 gg
 
-jpeg(filename=paste0(figdir,'fa_ns_seasonal_lapse_rates_rtse.jpeg'),width=6,height=7,units="in",res=500,quality=100)
+jpeg(filename=paste0(figdir,'fa_ns_seasonal_lapse_rates.jpeg'),width=10,height=7,units="in",res=500,quality=100)
 print(gg)
 dev.off()
 
