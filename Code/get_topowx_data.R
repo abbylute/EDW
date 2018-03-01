@@ -16,7 +16,7 @@ get_topowx_data <- function(varname, startdate, enddate,
 
   tt <- ncvar_get(nc,'time')  # insert dim names shown in print out to display dimension values
   #ncatt_get(nc,'time','units')
-  cal <- seq(as.Date('1948-01-01'),as.Date('2015-12-31'),'days') #should change this to be more robust!!!!!!!!!
+  cal <- seq(as.Date('1948-01-01'),as.Date('2016-12-31'),'days') #should change this to be more robust!!!!!!!!!
   if (!is.null(which(cal==startdate))){
     st <- which(cal == startdate)
   } else{
