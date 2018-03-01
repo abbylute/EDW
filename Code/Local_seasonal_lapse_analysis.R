@@ -3,9 +3,9 @@ library(plyr)
 library(dplyr)
 library(tidyr)
 
-varname <- 'tmax'  # specify tmax or tmin
-meta <- tmax_meta
-temps <- tmax
+varname <- 'tmin'  # specify tmax or tmin
+meta <- tmin_meta
+temps <- tmin
 
 sub_bbox <- c(-113,42,-110,45)
 
@@ -36,6 +36,9 @@ seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spri
   seasons <- gather(seasons,season,month)
 
 tm2 <- tm %>% left_join(seasons, by = "month")
+
+# take all the December obs and make year=year+1 then run the season_means so that december gets grouped with winter of the correct year
+tm2$year[which(tm2$month==12)] <- as.character(as.numeric(tm2$year[which(tm2$month==12)]) +1)
 
 season_means <- tm2 %>%
   group_by(station_id,season,year) %>%
@@ -128,8 +131,8 @@ for (yy in 1:length(files)){
 # join the near-surface and free-air lapse rates:
   unique(free_air$year)
   unique(season_lapse_rates$year)
-  fa <- fa %>% filter(year>1979, year<2016) 
-  ns <- season_lapse_rates %>% filter(year>1979, year<2016)
+  fa <- fa %>% filter(year>1979, year<2017) 
+  ns <- season_lapse_rates %>% filter(year>1979, year<2017)
   names(fa) <- c('year','season','fa_lapse')
   ns <- select(ns,year,season,lapse); names(ns) <- c('year','season','ns_lapse')
   lapse <- left_join(fa,ns, by=c('year','season'))
