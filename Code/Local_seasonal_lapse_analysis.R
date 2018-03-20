@@ -2,55 +2,66 @@ library(magrittr)
 library(plyr)
 library(dplyr)
 library(tidyr)
+library(ggplot2)
 
 varname <- 'tmin'  # specify tmax or tmin
 meta <- tmin_meta
 temps <- tmin
 
 sub_bbox <- c(-113,42,-110,45)
-
+#sub_bbox <- c(-114,41,-109,46) # wider bbox
+#sub_bbox <- c(-122,45,-118,47) # east side of oregon cascades
 ss <- which(meta$lat>sub_bbox[2] & meta$lat<sub_bbox[4] & meta$lon>sub_bbox[1] & meta$lon<sub_bbox[3])
 meta<- meta[ss,]
 temps <- data.frame(temps[ss,])  
 cal <- seq(as.Date(startdate),as.Date(enddate),'days')
 
-#ggmap(gm) +
-#  geom_point(data=sub_tmax_meta, aes(x=lon, y=lat,color=elev),size=1)+
-##  scale_color_gradientn(name="Elevation", colors=rainbow(20))+
-#  theme(legend.key=element_rect(fill="white")) +
-#  coord_map(ylim=bbox[c(2,4)], xlim=bbox[c(1,3)]) +
-#  labs(y='', x='' )
+ggmap(gm) +
+  geom_point(data=meta, aes(x=lon, y=lat,color=elev),size=1)+
+  scale_color_gradientn(name="Elevation", colors=rainbow(20))+
+  theme(legend.key=element_rect(fill="white")) +
+  coord_map(ylim=bbox[c(2,4)], xlim=bbox[c(1,3)]) +
+  labs(y='', x='' )
 
-temps <- cbind(meta,temps)
-tm <- temps %>% gather(key=date, value=temperature, 6:ncol(temps))
+# calculate station TPI to use later:
+source('Code/calculate_station_tpi.R')
+tpi1km <- calculate_station_tpi(meta,buffer=1000)
+#############
 
-datedf <- data.frame(date=c(colnames(temps[6:ncol(temps)])), datenm=cal, stringsAsFactors=F)
-tm <- left_join(tm,datedf, by='date')
-tm <- tm %>% select(-date)
-names(tm)[ncol(tm)] <- 'date'
-tm <- tm %>% separate(date, into=c('year','month','day'),sep='-',remove=F)
-tm <- arrange(tm,station_id,date)
+# reorganize the metadata and temperature data into a long data frame:
+  temps <- cbind(meta,temps)
+  tm <- temps %>% gather(key=date, value=temperature, 6:ncol(temps))
+  
+  datedf <- data.frame(date=c(colnames(temps[6:ncol(temps)])), datenm=cal, stringsAsFactors=F)
+  tm <- left_join(tm,datedf, by='date')
+  tm <- tm %>% dplyr::select(-date)
+  names(tm)[ncol(tm)] <- 'date'
+  tm <- tm %>% separate(date, into=c('year','month','day'),sep='-',remove=F)
+  tm <- arrange(tm,station_id,date)
+  
+  seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),'Summer'=c('06','07','08'))
+    seasons <- gather(seasons,season,month)
+  tm <- tm %>% left_join(seasons, by = "month")
+  #write.table(tm, 'Data/tmin_subset.txt')
+  
+  # take all the December obs and make year=year+1 then run the season_means so that december gets grouped with winter of the correct year
+  tm$year[which(tm$month==12)] <- as.character(as.numeric(tm$year[which(tm$month==12)]) +1)
+  tm <- tm %>% filter(!(year==2017 & month==12)) # remove the december 2016 observations which would be grouped with winter 2017 since we don't have all the data for winter 2017
 
-
-seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),'Summer'=c('06','07','08'))
-  seasons <- gather(seasons,season,month)
-
-tm2 <- tm %>% left_join(seasons, by = "month")
-
-# take all the December obs and make year=year+1 then run the season_means so that december gets grouped with winter of the correct year
-tm2$year[which(tm2$month==12)] <- as.character(as.numeric(tm2$year[which(tm2$month==12)]) +1)
-
-season_means <- tm2 %>%
+# Calculate seasonal mean temperature values:
+season_means <- tm %>%
   group_by(station_id,season,year) %>%
-  mutate(smtemp = mean(temperature,na.rm=T)) %>% select(-temperature,-date,-month,-day)
+  mutate(smtemp = mean(temperature,na.rm=T)) %>% dplyr::select(-temperature,-date,-month,-day)
 season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(smtemp))
 
+# Calculate seasonal lapse rates using elevation alone:
 season_lapse_rates <- season_means %>% group_by(season,year) %>%
   summarise(lapse=summary(lm(smtemp~elev))$coefficients[2]*1000)
 
-ggplot(data=season_lapse_rates,aes(x=year,y=lapse,group=season)) +  geom_line() + facet_wrap(~season)
+  ggplot(data=season_lapse_rates,aes(x=year,y=lapse,group=season)) +  geom_line() + facet_wrap(~season)
 
-
+  season_lapse_rates %>% group_by(season) %>% summarise(ml=mean(lapse))
+  
 #################
 # Compute free-air lapse rates for each lat/lon column for each year and month using only levels above the reanalysis land surface
 rtse= T  # if rtse (restrict to station elevations) is T, then only free-air observations within the range of stations elevations are used to calculate free-air lapse rates
