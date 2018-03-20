@@ -16,7 +16,8 @@ calculate_station_tpi = function(meta, buffer){
   for (ii in 1:length(buffer)){
     out[,ii] <- meta$elev - extract(m, myPoints, buffer=buffer[ii], fun=mean, cellnumbers=T) # the buffer units appears to be meters
   }
-    
+    names(out) <- paste0('m',buffer)
+    out
 }
 
 
