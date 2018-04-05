@@ -5,7 +5,11 @@
 # NOTE: this removes a lot of observations since many free air obs are at >3000m
 
 
-get_free_air_lapse_rates = function(bbox, rtse=T){
+get_free_air_lapse_rates = function(bbox, rtse=T, meta){
+  
+  if (!all(c('lat','lon','elev') %in% names(meta))){
+      print('dataframe called meta must contain column names lat, lon, and elev')
+  }
   
   library(ncdf4)
   dirr <- 'Data/era-i-heights/'
@@ -20,8 +24,10 @@ get_free_air_lapse_rates = function(bbox, rtse=T){
   d2 <- which(lats>bbox[2] & lats<bbox[4])
   latlookup <- data.frame(lat =c(paste0('lat',c(1:length(d2)))), latval=lats[d2], stringsAsFactors=F)
   landheight <- ncvar_get(land,'z',start=c(min(d1),min(d2),1),count=c(length(d1),length(d2),-1))/9.8 # now in meters
-  lh <- data.frame(lons[d1],landheight); names(lh) <- c('lon','lat1','lat2','lat3')
-  lh <- gather(lh,key=lat, value=landz, lat1:lat3)
+  #lh <- data.frame(lons[d1],landheight); names(lh) <- c('lon','lat1','lat2','lat3')
+  lh <- data.frame(lons[d1],landheight); names(lh) <- c('lon',paste0('lat',c(1:length(d2))))
+  #lh <- gather(lh,key=lat, value=landz, lat1:lat3)
+  lh <- gather(lh,key=lat, value=landz, 2:(length(d2)+1))
   lh <- lh %>% left_join(latlookup, by="lat") %>% dplyr::select(lon,latval,landz); names(lh) <- c('lon','lat','landz')
 
   free_air <- data.frame()
@@ -32,20 +38,20 @@ get_free_air_lapse_rates = function(bbox, rtse=T){
     times <- ncvar_get(nc,'time') #these are just monthly values (12 total)
     levels <- ncvar_get(nc,'level')
     
-    d1 <- which(lons>sub_bbox[1] & lons<sub_bbox[3])
-    d2 <- which(lats>sub_bbox[2] & lats<sub_bbox[4])
+    d1 <- which(lons>bbox[1] & lons<bbox[3])
+    d2 <- which(lats>bbox[2] & lats<bbox[4])
     latlookup <- data.frame(lat =c(paste0(LETTERS[1:length(d2)])), latval=lats[d2])
     lonlookup <- data.frame(lon =c(paste0(LETTERS[1:length(d1)])), lonval=lons[d1])
     timelookup <- data.frame(month=c(paste0(LETTERS[1:length(times)])), timeval=c(1:12))
     levlookup <- data.frame(level =c(paste0(LETTERS[1:length(levels)])), levval=levels)
     
-    temp <- ncvar_get(nc,'t',start=c(min(d1),min(d2),1,1),count=c(length(d1),length(d2),-1,-1)) -273.15 # grab temperatures and convert to C
-    geop <- ncvar_get(nc,'z',start=c(min(d1),min(d2),1,1),count=c(length(d1),length(d2),-1,-1)) / 9.8
+    temp <- ncvar_get(nc,'t',start=c(min(d1),min(d2),1,1),count=c(length(d1),length(d2),-1,-1),collapse_degen=F) -273.15 # grab temperatures and convert to C
+    geop <- ncvar_get(nc,'z',start=c(min(d1),min(d2),1,1),count=c(length(d1),length(d2),-1,-1),collapse_degen=F) / 9.8
     
     # make temp into a data.frame:
     tt <- as.data.frame.table(temp,responseName='temp')
     names(tt) <- c('lon','lat','level','month','temp')
-    
+
     # make geop into a data.frame:
     dd <- as.data.frame.table(geop,responseName='geop')
     names(dd) <- c('lon','lat','level','month','geop')
