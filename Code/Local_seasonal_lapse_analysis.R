@@ -7,7 +7,7 @@ library(ggmap)
 source('Code/FIX_get_stamenmap_RCode.R') #ignore png warning
 
 #-----------------------------------------------------------------      
-# SETUP:
+## SETUP:
 master <- read.table("Data/TopoWx/GHCN_raw_1980_summary.txt")
 regname <- 'Upper Snake'
 figdir <- paste0("Figures/GHCN_raw_1980/",gsub(' ','',regname),"/")
@@ -23,7 +23,7 @@ length(unique(df$station_id))
 cal <- seq(as.Date(startdate),as.Date(enddate),'days')
 
 #-----------------------------------------------------------------      
-# Map the selected stations:
+## Map the selected stations:
 gm <- get_stamenmap(sub_bbox,maptype="toner",zoom=6)  
 ggmap(gm) +
   geom_point(data=df, aes(x=lon, y=lat,color=elev),size=1)+
@@ -56,12 +56,41 @@ for (tt in 1:length(tvars)){
   }
 }
 cortab$var <- factor(cortab$var, unique(cortab$var))
-cortab %>% group_by(tvar,var) %>% summarise(mcor=mean(cor))
+mcor <- cortab %>% group_by(tvar,var) %>% summarise(mcor=mean(cor))
 
 ggplot(cortab) + geom_line(aes(x=season,y=cor,col=var,group=var)) + facet_wrap(~tvar, nrow=3) +
   scale_color_discrete('Explanatory\nVariable', labels=c('elevation','solar radiation','TPI 200m','TPI 500m','TPI 1km','TPI 5km')) +
   labs(y="correlation (R, across sites)", title=paste0(regname,' TopoWx temperature-variable correlations'))
 ggsave(paste0(figdir,'temperature_variable_correlations.jpeg'))
+
+
+
+# -------------------------------------------------
+## STATION SIMILARITY ANALYSIS:
+source('Code/similar_stations_analysis.R')
+exvar_opt <- c('max','min','min','min','min','min')
+
+# choose the top 3 explanatory variables:
+varlist <- exvars[order(abs(mcor$mcor[which(mcor$tvar=='tmax')]),decreasing=T)[1:3]]
+optlist <- exvar_opt[order(abs(mcor$mcor[which(mcor$tvar=='tmax')]),decreasing=T)[1:3]]
+lapse_tmax <- similar_stations_analysis(data=df,vars=varlist, opt=optlist, tvar='tmax', figdir= figdir)
+
+# repeat for tmin:
+varlist <- exvars[order(abs(mcor$mcor[which(mcor$tvar=='tmin')]),decreasing=T)[1:3]]
+optlist <- exvar_opt[order(abs(mcor$mcor[which(mcor$tvar=='tmin')]),decreasing=T)[1:3]]
+lapse_tmin <- similar_stations_analysis(data=df,vars=varlist, opt=optlist, tvar='tmin', figdir= figdir)
+
+# We could build on this by letting the explanatory variables vary by season
+
+
+
+# HAVE not updated below this line to reflect the changes above this line
+
+
+
+
+
+
 
 
 # LAPSE RATE METHOD 1: Calculate seasonal lapse rates using elevation alone:
