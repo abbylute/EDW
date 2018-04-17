@@ -3,55 +3,65 @@ library(plyr)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(ggmap)
+source('Code/FIX_get_stamenmap_RCode.R') #ignore png warning
 
-varname <- 'tmin'  # specify tmax or tmin
-meta <- tmin_meta
-temps <- tmin
-
+#-----------------------------------------------------------------      
+# SETUP:
+master <- read.table("Data/TopoWx/GHCN_raw_1980_summary.txt")
+regname <- 'Upper Snake'
+figdir <- paste0("Figures/GHCN_raw_1980/",gsub(' ','',regname),"/")
 sub_bbox <- c(-113,42,-110,45)
 #sub_bbox <- c(-114,41,-109,46) # wider bbox
 #sub_bbox <- c(-122,41,-118,46) # east side of oregon cascades
 #sub_bbox <- c(-110,37,-105,41) # western colorado
-ss <- which(meta$lat>sub_bbox[2] & meta$lat<sub_bbox[4] & meta$lon>sub_bbox[1] & meta$lon<sub_bbox[3])
-meta<- meta[ss,]
-temps <- data.frame(temps[ss,])  
+
+
+df <- master %>% filter(lat>sub_bbox[2] & lat<sub_bbox[4] & lon>sub_bbox[1] & lon<sub_bbox[3])
+length(unique(df$station_id))
+
 cal <- seq(as.Date(startdate),as.Date(enddate),'days')
 
+#-----------------------------------------------------------------      
+# Map the selected stations:
+gm <- get_stamenmap(sub_bbox,maptype="toner",zoom=6)  
 ggmap(gm) +
-  geom_point(data=meta, aes(x=lon, y=lat,color=elev),size=1)+
+  geom_point(data=df, aes(x=lon, y=lat,color=elev),size=1)+
   scale_color_gradientn(name="Elevation", colors=rainbow(20))+
   theme(legend.key=element_rect(fill="white")) +
-  coord_map(ylim=bbox[c(2,4)], xlim=bbox[c(1,3)]) +
+  coord_map(ylim=sub_bbox[c(2,4)], xlim=sub_bbox[c(1,3)]) +
   labs(y='', x='' )
 
+#-----------------------------------------------------------------      
+## VARIABLE CORRELATIONS:
+tvars <- c('tmax','tmin')
+exvars <- c('elev','srad','m200','m500','m1000','m5000')
+seas <- unique(df$season)
 
-#############
-# reorganize the metadata and temperature data into a long data frame:
-  temps <- cbind(meta,temps)
-  tm <- temps %>% gather(key=date, value=temperature, 6:ncol(temps))
-  
-  datedf <- data.frame(date=c(colnames(temps[6:ncol(temps)])), datenm=cal, stringsAsFactors=F)
-  tm <- left_join(tm,datedf, by='date')
-  tm <- tm %>% dplyr::select(-date)
-  names(tm)[ncol(tm)] <- 'date'
-  tm <- tm %>% separate(date, into=c('year','month','day'),sep='-',remove=F)
-  tm <- arrange(tm,station_id,date)
-  
-  seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),'Summer'=c('06','07','08'))
-    seasons <- gather(seasons,season,month)
-  tm <- tm %>% left_join(seasons, by = "month")
-  #write.table(tm, 'Data/tmin_subset.txt')
-  
-  # take all the December obs and make year=year+1 then run the season_means so that december gets grouped with winter of the correct year
-  tm$year[which(tm$month==12)] <- as.character(as.numeric(tm$year[which(tm$month==12)]) +1)
-  tm <- tm %>% filter(!(year==2017 & month==12)) # remove the december 2016 observations which would be grouped with winter 2017 since we don't have all the data for winter 2017
+tabm <- df %>% group_by(season,station_id) %>% 
+  summarise(elev=mean(elev,na.rm=T),tmax=mean(tmax,na.rm=T),tmin=mean(tmin,na.rm=T),
+            srad=mean(srad,na.rm=T),m200=mean(m200,na.rm=T),m500=mean(m500,na.rm=T),m1000=mean(m1000,na.rm=T),m5000=mean(m5000,na.rm=T))
+cortab <- data.frame('tvar' = rep(tvars, each=length(exvars)*length(seas)),
+                     'var' = rep(rep(exvars, each=length(seas)), length(tvars)),
+                     'season' = rep(seas, length(exvars)*length(tvars)),
+                     'cor' = rep(NA, length(tvars)*length(exvars)*length(seas)))
 
-# Calculate seasonal mean temperature values:
-  season_means <- tm %>%
-    group_by(station_id,season,year) %>%
-    mutate(smtemp = mean(temperature,na.rm=T)) %>% dplyr::select(-temperature,-date,-month,-day)
-  season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(smtemp))
+for (tt in 1:length(tvars)){
+  for (ss in 1:length(seas)){
+    tabb <- tabm %>% filter(season==seas[ss]) %>% select(tvars[tt],station_id,season,exvars) %>% na.omit
+    for (vv in 1:length(exvars)){
+      rr <- which(cortab$tvar==tvars[tt] & cortab$var==exvars[vv] & cortab$season==seas[ss])
+      cortab$cor[rr] <- cor(tabb[which(names(tabb)==tvars[tt])], tabb[which(names(tabb)==exvars[vv])])
+    }
+  }
+}
+cortab$var <- factor(cortab$var, unique(cortab$var))
+cortab %>% group_by(tvar,var) %>% summarise(mcor=mean(cor))
 
+ggplot(cortab) + geom_line(aes(x=season,y=cor,col=var,group=var)) + facet_wrap(~tvar, nrow=3) +
+  scale_color_discrete('Explanatory\nVariable', labels=c('elevation','solar radiation','TPI 200m','TPI 500m','TPI 1km','TPI 5km')) +
+  labs(y="correlation (R, across sites)", title=paste0(regname,' TopoWx temperature-variable correlations'))
+ggsave(paste0(figdir,'temperature_variable_correlations.jpeg'))
 
 
 # LAPSE RATE METHOD 1: Calculate seasonal lapse rates using elevation alone:
@@ -64,11 +74,7 @@ ggmap(gm) +
 
 # LAPSE RATE METHOD 2: Calculate seasonal lapse rates using elevation and TPI:
 #-------------------------------------------------------------------------- 
-  # read in calculated TPIs:
-  tpi <- read.table('Data/TPI/TPI_topowx_stations.txt')
-  tpi <- tpi[which(tpi$station_id %in% season_means$station_id),] %>% select(-c(lat,lon,elev))
-  season_means <- left_join(season_means,tpi, by='station_id')
-  buffer <- names(tpi)[2:ncol(tpi)]
+  buffer <- names(tpi)[2:ncol(tpi)] # need to update this so that buffer comes from teh column names
     
   for (ii in 1:length(buffer)){
     var_name <-paste0('lapse_',buffer[ii])
@@ -84,19 +90,6 @@ ggmap(gm) +
   
 # LAPSE RATE METHOD 3: Calculate seasonal lapse rates using elevation and solar radiation:
 #-------------------------------------------------------------------------- 
-  source('Code/get_station_srad.R')
-  srad <- get_station_srad(meta) 
-  srad <- cbind(meta$station_id,srad); names(srad)[1] <- 'station_id'
-
-  # convert monthly srad to seasonal srad:
-  srad_seasonal <- srad %>% group_by(station_id) %>% 
-    summarise(Winter = mean(c(jan,feb,dec),na.rm=T), Spring = mean(c(mar,apr,may),na.rm=T),
-           Summer = mean(c(jun,jul,aug),na.rm=T), Fall = mean(c(sep,oct,nov),na.rm=T)) %>%
-    gather('season','srad',c('Winter','Spring','Summer','Fall'))
-  rm(srad); gc()
-  
-  season_means <- left_join(season_means,srad_seasonal, by=c('station_id','season'))
-  
   # calculate lapse rates based on elevation and seasonal solar radiation:
   season_means <- season_means %>% group_by(season,year) %>%
     mutate(lapse_srad=summary(lm(smtemp~elev+srad))$coefficients[2]*1000)
