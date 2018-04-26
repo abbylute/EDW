@@ -1,5 +1,5 @@
 # Multiobjective Optimization
-# get df and cortab from Local_seasonal_lapse_analysis.R
+# get df and cortab from Local_seasonal_lapse_analysis.R first
 library(parallel)
 library(tictoc)
 source('Code/all_samples_var_ranges.R')
@@ -28,26 +28,32 @@ if (scale==T){
 samp_df <- (matrix(nrow=0,ncol=(length(vars)+6)))
 
 # Loop through sample sizes:
-#for (num_stations in 2:total_stations){
-num_stations <- 3
+# took 50 minutes to do a sample size of 20 (2:20)
+tic('all samples')
+for (num_stations in 2:total_stations){
+#num_stations <- 25
   
-  samp <- combn(unique(meta_sc$station_id),num_stations) # compute all possible combinations of this number of stations
-  samp <- cbind(as.character(samp[1,]),as.character(samp[2,]))
-  # may have to trim sample sets because they get very large for more than ~20 stations:
+  samp <- t(combn(as.character(unique(meta_sc$station_id)),num_stations)) # compute all possible combinations of this number of stations
+   # may have to trim sample sets because they get very large for more than ~20 stations:
     #samp <- samp[,sample(c(1:ncol(samp)),pmin(ncol(samp),10000), replace=F),drop=F]
   
   
   cl <- makeCluster(7)
   clusterExport(cl, c("all_samples_var_ranges","meta","meta_sc","vars"))
+  tic('go')
+  print(num_stations)
   samp_vars <- parApply(cl,samp, 1, function(i) all_samples_var_ranges(sampcol=i,meta,meta_sc,vars))
+  toc()
   stopCluster(cl)
   samp_vars <- t(samp_vars)
 
   samp_df <- rbind(samp_df,samp_vars) # combine the tables for each num_stations value
     
-#} # end num_stations
+} # end num_stations
+toc()
+samp_df <- data.frame(samp_df)
 names(samp_df) <- c('num_stations',vars,'Annual','Spring','Summer','Fall','Winter')
-    
+    write.table(samp_df, paste0(figdir,gsub(' ','',regname),'_allsamples_data.csv'))
     
 samp_dflong <- samp_df %>% gather('season', 'lapse', Annual:Winter)
 samp_dflong <- samp_dflong %>% gather('var','var_range', elev:m5000)
@@ -67,78 +73,100 @@ plot(ee) # the original distribution
 
 samp_dflong$var_range[which(samp_dflong$var == 'elev')] <- devr-evr
 
-# weight the ranges by the variable's correlation with seasonal temperature
-# old way, caused unimportant variables to get large values, making it potentially harder to find the best samples
-  samp_wt <- samp_dflong %>% mutate(var_range_wt = var_range*abs(1/cor)) # causes ranges to be larger when correlations are lower
-  samp_wt_wide <- samp_wt %>% select(-tvar,-cor,-var_range) %>% spread('var','var_range_wt')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
-  ggplot(samp_wt_wide) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~season) + 
-    labs(x='sum of weighted variable ranges',y='lapse rate', title='Tmax inverse weighted multiobjective optimization (n=5)',
-         subtitle = 'variables include elevation, srad, and all TPIs')
-  ggsave(paste0(figdir,'tmax_multi_opt_inversewt_n5.jpeg'))
-  samp_wt_wide %>% group_by(season) %>% filter(vsum == min(vsum))
-  
+### PLOTTING SUMMED WEIGHTS ###
+wt_opt <-   2 # specify a wt_scheme
+wt_schemes <- c('unwt','latewt','inversewt','wt')
+wt_name <- c('unweighted','late weighted','inverse weighted','weighted')
 
-  # weight the ranges by the variable's correlation with seasonal temperature
-  # second way, caused unimportant variables to get smaller values, making it maybe easier to ignore these in trying to find best sample
-  samp_wt1 <- samp_dflong %>% mutate(var_range_wt = var_range*abs(cor)) # causes ranges to be larger when correlations are lower
-  samp_wt_wide1 <- samp_wt1 %>% select(-tvar,-cor,-var_range) %>% spread('var','var_range_wt')
-  samp_wt_wide1 <- samp_wt_wide1 %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
-  ggplot(samp_wt_wide1) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~season) + 
-    labs(x='sum of weighted variable ranges',y='lapse rate', title='Tmax weighted multiobjective optimization (n=5)',
-         subtitle = 'variables include elevation, srad, and all TPIs')
-  ggsave(paste0(figdir,'tmax_multi_opt_wt_n5.jpeg'))
-  samp_wt_wide1 %>% group_by(season) %>% filter(vsum == min(vsum)) %>% summarise(mlapse=mean(lapse))
-  
+nn <- length(unique(samp_dflong$num_stations))
+  if (wt_opt ==1){
+    samp_wt_wide <- samp_dflong %>% select(-tvar,-cor) %>% spread('var','var_range')
+    samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
     
-  # weight the ranges by the variable's correlation with seasonal temperature
-  # new way, 
-  samp_wt_wide2 <- samp_dflong %>% select(-tvar,-cor) %>% spread('var','var_range')
-  outtab <- data.frame(matrix(ncol=(ncol(samp_wt_wide2)+1),nrow=0)); names(outtab) <- c(names(samp_wt_wide2),'vsum')
-  for (ss in 1:length(seas)){
-    tab <- samp_wt_wide2 %>% filter(season == seas[ss])
-    corstrim <- cors %>% filter(season == seas[ss])
-    tab <- tab %>% mutate(vsum = sqrt( (elev^2)*abs(corstrim$cor[which(corstrim$var=='elev')]) +
-                                (srad^2)*abs(corstrim$cor[which(corstrim$var=='srad')]) +
-                                (m200^2)*abs(corstrim$cor[which(corstrim$var=='m200')]) +
-                                (m500^2)*abs(corstrim$cor[which(corstrim$var=='m500')]) +
-                                (m1000^2)*abs(corstrim$cor[which(corstrim$var=='m1000')]) +
-                                (m5000^2)*abs(corstrim$cor[which(corstrim$var=='m5000')])))
-    outtab <- rbind(outtab,tab)
+  } else if (wt_opt==2){
+    samp_wt <- samp_dflong %>% select(-tvar,-cor) %>% spread('var','var_range')
+    samp_wt_wide <- data.frame(matrix(ncol=(ncol(samp_wt)+1),nrow=0)); names(samp_wt_wide) <- c(names(samp_wt),'vsum')
+    for (ss in 1:length(seas)){
+      tab <- samp_wt %>% filter(season == seas[ss])
+      corstrim <- cors %>% filter(season == seas[ss])
+      tab <- tab %>% mutate(vsum = sqrt((elev^2)*abs(corstrim$cor[which(corstrim$var=='elev')]) + (srad^2)*abs(corstrim$cor[which(corstrim$var=='srad')]) +
+                                        (m200^2)*abs(corstrim$cor[which(corstrim$var=='m200')]) + (m500^2)*abs(corstrim$cor[which(corstrim$var=='m500')]) +
+                                        (m1000^2)*abs(corstrim$cor[which(corstrim$var=='m1000')]) + (m5000^2)*abs(corstrim$cor[which(corstrim$var=='m5000')])))
+      samp_wt_wide <- rbind(samp_wt_wide,tab)
+    }
+    
+  } else if (wt_opt==3){
+    samp_wt <- samp_dflong %>% mutate(var_range_wt = var_range*abs(1/cor))  # causes ranges to be larger when correlations are lower
+    samp_wt_wide <- samp_wt  %>% select(-tvar,-cor,-var_range) %>% spread('var','var_range_wt')
+    samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
+    
+  } else if (wt_opt==4){
+    samp_wt <- samp_dflong %>% mutate(var_range_wt = var_range*abs(cor)) # causes ranges to be larger when correlations are lower
+    samp_wt_wide <- samp_wt %>% select(-tvar,-cor,-var_range) %>% spread('var','var_range_wt')
+    samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
+    
   }
-  ggplot(outtab) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~season) + 
-    labs(x='sum of weighted variable ranges',y='lapse rate', title='Tmax later weighted multiobjective optimization (n=5)',
-         subtitle = 'variables include elevation, srad, and all TPIs')
-  ggsave(paste0(figdir,'tmax_multi_opt_latewt_n5.jpeg'))
-  outtab %>% group_by(season) %>% filter(vsum == min(vsum)) %>% summarise(mlapse=mean(lapse))
   
-  
-  
-  
+  # plot it:
+  if(nn ==1){
+    ggplot(samp_wt_wide) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~season) + 
+      labs(x='sum of weighted variable ranges',y='lapse rate', title=paste0('Tmax ',wt_name[wt_opt],' multiobjective optimization (n=',num_stations,')'),
+           subtitle = 'variables include elevation, srad, and all TPIs')
+    #ggsave(paste0(figdir,'tmax_multi_opt_',wt_schemes[wt_opt],'_n',num_stations,'.jpeg'))
+    samp_wt_wide %>% group_by(season) %>% filter(vsum == min(vsum))
+    
+  } else { # for multiple sample sizes
+    for (ss in 1:length(seas)){
+      sname <- as.character(seas[ss])
+      ggplot(samp_wt_wide[which(samp_wt_wide$season==sname),]) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~num_stations) + 
+        lims(y=c(-30,20)) +
+        labs(x='sum of weighted variable ranges',y='lapse rate', title=paste0(sname,' Tmax ',wt_name[wt_opt],' multiobjective optimization'),
+             subtitle = 'variables include elevation, srad, and all TPIs')
+      ggsave(paste0(figdir,sname,'_tmax_multi_opt_',wt_schemes[wt_opt],'_allsamples.jpeg'))
+      
+    } #seasons
+  } # plotting
+####### end plotting summed weights ########
 
-# same but without the weighting:
-samp_unwt <- samp_dflong %>% select(-tvar,-cor) %>% spread('var','var_range')
-samp_unwt <- samp_unwt %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
-ggplot(samp_unwt) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~season) + 
-  labs(x='sum of unweighted variable ranges',y='lapse rate', title='Tmax unweighted multiobjective optimization (n=5)',
-       subtitle = 'variables include elevation, srad, and all TPIs')
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_n5.jpeg'))
-samp_unwt %>% group_by(season) %>% filter(vsum == min(vsum))
 
-# also look at how each variable's ranges compares with the calculated lapse rates:
-ggplot(samp_unwt) + geom_point(aes(x=elev, y=lapse)) + facet_wrap(~season) # strong funnel
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_elev_n5.jpeg'))
-ggplot(samp_unwt) + geom_point(aes(x=m1000, y=lapse)) + facet_wrap(~season) # no clear pattern
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_m1000_n5.jpeg'))
-ggplot(samp_unwt) + geom_point(aes(x=m200, y=lapse)) + facet_wrap(~season) # no clear pattern
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_m200_n5.jpeg'))
-ggplot(samp_unwt) + geom_point(aes(x=m500, y=lapse)) + facet_wrap(~season) # no clear pattern
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_m500_n5.jpeg'))
-ggplot(samp_unwt) + geom_point(aes(x=m5000, y=lapse)) + facet_wrap(~season) # no clear pattern
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_m5000_n5.jpeg'))
-ggplot(samp_unwt) + geom_point(aes(x=srad, y=lapse)) + facet_wrap(~season) # no clear pattern
-ggsave(paste0(figdir,'tmax_multi_opt_unwt_srad_n5.jpeg'))
-# elevation is the only variable that helps collapse the range of potential lapse rate values.
+
+
+### PLOTTING INDIVIDUAL VARIABLE WEIGHTS ###
+nn <- length(unique(samp_dflong$num_stations))
+# simply use unweighted:
+samp_wt_wide <- samp_dflong %>% select(-tvar,-cor) %>% spread('var','var_range')
+samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
+
+if (nn==1){
+  for (vv in 1:length(vars)){
+    ggplot(samp_wt_wide) + geom_point(aes_string(x=vars[vv], y='lapse')) + 
+      lims(y=c(-30,20)) + facet_wrap(~season) +
+      labs(x=paste0(vars[vv],' range'),y='lapse rate', title=paste0('Tmax ',wt_name[wt_opt],' multiobjective optimization'))
+    ggsave(paste0(figdir,'tmax_multi_opt_unwt_',vars[vv],'_n',num_stations,'.jpeg'))
+   
+  } # end variables
+} else { # for multiple sample sizes
+  for (vv in 1:length(vars)){
+    for (ss in 1:length(seas)){
+      sname <- as.character(seas[ss])
+      sampy <- samp_wt_wide[which(samp_wt_wide$season==seas[ss]),]
+      names(sampy)[which(names(sampy)==vars[vv])] <- 'vname'
+      minlapse <- sampy %>% group_by(num_stations) %>% filter(vname == min(vname)) %>% select(num_stations,lapse)
+      minlapse$lapse <- round(minlapse$lapse,2)
+      minlapse$x <- rep(min(sampy$vname)+.2*(diff(range(sampy$vname))),nrow(minlapse))
+      minlapse$y <- rep(18, nrow(minlapse))
+      
+      ggplot(sampy) + geom_point(aes(x=vname, y=lapse)) + geom_text(data=minlapse, aes(x=x,y=y,label=lapse)) +
+        lims(y=c(-30,20)) + facet_wrap(~num_stations) +
+        labs(x=paste0(vars[vv],' range'),y='lapse rate', title=paste0(sname,' tmax ',wt_name[wt_opt],' multiobjective optimization'))
+      ggsave(paste0(figdir,sname,'_tmax_multi_opt_unwt_',vars[vv],'_allsamples.jpeg'))
+    
+    } # end seasons
+  } # end variables
+} # end plotting
+rm(sampy);gc()
+####### end plotting individual variable weights ########
+
 
 
 
