@@ -2,6 +2,7 @@
 # get df and cortab from Local_seasonal_lapse_analysis.R first
 library(parallel)
 library(tictoc)
+library(colorRamps)
 source('Code/all_samples_var_ranges.R')
 
 tvar <- 'tmax'
@@ -25,7 +26,7 @@ if (scale==T){
 }
 
 # set up of the dataframe to contain all of the sample ranges
-samp_df <- (matrix(nrow=0,ncol=(length(vars)+6)))
+samp_df <- (matrix(nrow=0,ncol=(length(vars)+11)))
 
 # Loop through sample sizes:
 # took 50 minutes to do a sample size of 20 (2:20)
@@ -52,10 +53,13 @@ for (num_stations in 2:total_stations){
 } # end num_stations
 toc()
 samp_df <- data.frame(samp_df)
-names(samp_df) <- c('num_stations',vars,'Annual','Spring','Summer','Fall','Winter')
-    write.table(samp_df, paste0(figdir,gsub(' ','',regname),'_allsamples_data.csv'))
-    
+
+names(samp_df) <- c('num_stations',vars,'Annual','Spring','Summer','Fall','Winter','Annual_rmse','Spring_rmse','Summer_rmse','Fall_rmse','Winter_rmse')
+write.table(samp_df, paste0(figdir,gsub(' ','',regname),'_allsamples_data_wrmse.csv'))
+
 samp_dflong <- samp_df %>% gather('season', 'lapse', Annual:Winter)
+names(samp_dflong)[which(names(samp_dflong) %in% c('Annual_rmse','Spring_rmse','Summer_rmse','Fall_rmse','Winter_rmse'))] <- c('Annual','Spring','Summer','Fall','Winter')
+samp_dflong <- samp_dflong %>% gather('season', 'rmse', Annual:Winter)
 samp_dflong <- samp_dflong %>% gather('var','var_range', elev:m5000)
 cors <- cortab %>% filter(tvar == 'tmax')
 samp_dflong <- left_join(samp_dflong,cors, by=c('season','var'))
@@ -109,17 +113,17 @@ nn <- length(unique(samp_dflong$num_stations))
   
   # plot it:
   if(nn ==1){
-    ggplot(samp_wt_wide) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~season) + 
+    ggplot(samp_wt_wide) + geom_point(aes(x=vsum, y=lapse, col=rmse)) + facet_wrap(~season) + 
       labs(x='sum of weighted variable ranges',y='lapse rate', title=paste0('Tmax ',wt_name[wt_opt],' multiobjective optimization (n=',num_stations,')'),
-           subtitle = 'variables include elevation, srad, and all TPIs')
+           subtitle = 'variables include elevation, srad, and all TPIs') + scale_color_gradientn(colours=matlab.like(50))
     #ggsave(paste0(figdir,'tmax_multi_opt_',wt_schemes[wt_opt],'_n',num_stations,'.jpeg'))
     samp_wt_wide %>% group_by(season) %>% filter(vsum == min(vsum))
     
   } else { # for multiple sample sizes
     for (ss in 1:length(seas)){
       sname <- as.character(seas[ss])
-      ggplot(samp_wt_wide[which(samp_wt_wide$season==sname),]) + geom_point(aes(x=vsum, y=lapse)) + facet_wrap(~num_stations) + 
-        lims(y=c(-30,20)) +
+      ggplot(samp_wt_wide[which(samp_wt_wide$season==sname),]) + geom_point(aes(x=vsum, y=lapse, col=rmse)) + facet_wrap(~num_stations) + 
+        lims(y=c(-30,20)) + scale_color_gradientn(colours=matlab.like(50)) +
         labs(x='sum of weighted variable ranges',y='lapse rate', title=paste0(sname,' Tmax ',wt_name[wt_opt],' multiobjective optimization'),
              subtitle = 'variables include elevation, srad, and all TPIs')
       ggsave(paste0(figdir,sname,'_tmax_multi_opt_',wt_schemes[wt_opt],'_allsamples.jpeg'))
@@ -139,8 +143,8 @@ samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + 
 
 if (nn==1){
   for (vv in 1:length(vars)){
-    ggplot(samp_wt_wide) + geom_point(aes_string(x=vars[vv], y='lapse')) + 
-      lims(y=c(-30,20)) + facet_wrap(~season) +
+    ggplot(samp_wt_wide) + geom_point(aes_string(x=vars[vv], y='lapse', col='rmse')) + 
+      lims(y=c(-30,20)) + facet_wrap(~season) + scale_color_gradientn(colours=matlab.like(50)) +
       labs(x=paste0(vars[vv],' range'),y='lapse rate', title=paste0('Tmax ',wt_name[wt_opt],' multiobjective optimization'))
     ggsave(paste0(figdir,'tmax_multi_opt_unwt_',vars[vv],'_n',num_stations,'.jpeg'))
    
@@ -156,8 +160,8 @@ if (nn==1){
       minlapse$x <- rep(min(sampy$vname)+.2*(diff(range(sampy$vname))),nrow(minlapse))
       minlapse$y <- rep(18, nrow(minlapse))
       
-      ggplot(sampy) + geom_point(aes(x=vname, y=lapse)) + geom_text(data=minlapse, aes(x=x,y=y,label=lapse)) +
-        lims(y=c(-30,20)) + facet_wrap(~num_stations) +
+      ggplot(sampy) + geom_point(aes(x=vname, y=lapse, col=rmse)) + geom_text(data=minlapse, aes(x=x,y=y,label=lapse)) +
+        lims(y=c(-30,20)) + facet_wrap(~num_stations) + scale_color_gradientn(colours=matlab.like(50)) +
         labs(x=paste0(vars[vv],' range'),y='lapse rate', title=paste0(sname,' tmax ',wt_name[wt_opt],' multiobjective optimization'))
       ggsave(paste0(figdir,sname,'_tmax_multi_opt_unwt_',vars[vv],'_allsamples.jpeg'))
     
