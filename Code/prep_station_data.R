@@ -26,12 +26,14 @@ prep_station_data = function(data, save_dir=F){
   print('Grabbing seasons...')
   # Get seasons:
   if (is.numeric(data$month) | nchar(data$month[1])==2){
-    seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),'Summer'=c('06','07','08'))
-    seasons <- gather(seasons,season,month)
+    seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),
+                          'Summer'=c('06','07','08'), , 'Annual'=c('01','02','03','04','05','06','07','08','09','10','11','12'))
+    seasons <- gather(seasons,season,month) %>% distinct()
     data <- data %>% left_join(seasons, by = "month")
   } else if (nchar(data$month[1])==3) {
-    seasons <- data.frame('Fall'=c('sep','oct','nov'), 'Winter'=c('dec','jan','feb'),'Spring'=c('mar','apr','may'),'Summer'=c('jun','jul','aug'))
-    seasons <- gather(seasons,season,month)
+    seasons <- data.frame('Fall'=c('sep','oct','nov'), 'Winter'=c('dec','jan','feb'),'Spring'=c('mar','apr','may'),
+                          'Summer'=c('jun','jul','aug'), 'Annual'=c('jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'))
+    seasons <- gather(seasons,season,month) %>% distinct()
     data <- data %>% left_join(seasons, by = "month")
   } else {
     print('Error: not sure how to convert month field to seasons.  Try one of these formats: jan or 01')
@@ -52,8 +54,22 @@ prep_station_data = function(data, save_dir=F){
               Summer = mean(c(jun,jul,aug),na.rm=T), Fall = mean(c(sep,oct,nov),na.rm=T)) %>%
     gather('season','srad',c('Winter','Spring','Summer','Fall'))
   
-  # this may not be robust if 'srad' is not a name in the original file... or we might want to keep that value
-  data <- left_join(data[,-which(names(data)=='srad')],srad_seasonal, by=c('station_id','season'))
+  if ('srad' %in% names(data)){ # in case there is an existing 'srad' column in the dataframe
+    names(data)[which(names(data)=='srad')] <- 'srad_orig'
+  }
+  
+  data <- left_join(data,srad_seasonal, by=c('station_id','season'))
+  
+  print('Grabbing windices...')
+  # Get windices:
+  source('Code/get_wind_index.R')
+  buffers <- c(500, 1000, 5000, 10000, 30000) # in meters
+  wi <- get_wind_index(data,buffers)
+  class(wi$year) <- 'integer'
+  data <- left_join(data,wi,by=c('station_id','season','year'))
+  
+  
+  
   
   if (!save_dir == F){
     write.table(data, save_dir)
