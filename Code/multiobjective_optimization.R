@@ -64,38 +64,55 @@ toc()
 samp_df <- data.frame(samp_df, stringsAsFactors=F)
 
 names(samp_df) <- c('num_stations','season','lapse','rmse','var','var_range')
-class(samp_df[,1]) <- 'numeric'
-class(samp_df[,3]) <- 'numeric'
-class(samp_df[,4]) <- 'numeric'
-class(samp_df[,6]) <- 'numeric'
+
 
 #write.table(samp_df, paste0(figdir,gsub(' ','',regname),'_allsamples_data_wrmse.csv'))
-#samp_df <- read.table(paste0(figdir,gsub(' ','',regname),'_allsamples_data_wrmse.csv'))
+#samp_df <- read.table(paste0(figdir,gsub(' ','',regname),'_allsamples_data_wrmse.csv'), stringsAsFactors=F)
 class(samp_df[,1]) <- 'numeric'
-cors <- cortab %>% filter(tvar == 'tmax')
+class(samp_df[,2]) <- 'character'
+class(samp_df[,3]) <- 'numeric'
+class(samp_df[,4]) <- 'numeric'
+class(samp_df[,5]) <- 'character'
+class(samp_df[,6]) <- 'numeric'
+
+cors <- cortab[which(cortab$tvar==tvar),]
 samp_df <- left_join(samp_df,cors, by=c('season','var')) %>% dplyr::select(-tvar)
 
 # rescale elevation ranges so that larger ranges get smaller numbers (like all the other variables)
 evr <- samp_df$var_range[which(samp_df$var == 'elev')] # elevation ranges
 ee <- ecdf(evr)
-plot(ee) # the original distribution
+#plot(ee) # the original distribution
 
 # a rescale option:
 devr <- max(evr)
 ee <- ecdf(devr-evr)
-plot(ee) # the rescaled distribution
+#plot(ee) # the rescaled distribution
 
 samp_df$var_range[which(samp_df$var == 'elev')] <- devr-evr
+rm(evr,ee,devr); gc()
 
 ### PLOTTING SUMMED WEIGHTS ###
 wt_opt <-   1 # specify a wt_scheme
 wt_schemes <- c('unwt','latewt','inversewt','wt')
 wt_name <- c('unweighted','late weighted','inverse weighted','weighted')
-
+  my_vsum <- function(df){ # function for taking the sqrt of the sum of the squared variable ranges
+    cols <- which(names(df) %in% vars)
+    var2 <- df[,cols]^2
+    out <- sqrt(rowSums(var2))
+  }
+  my_vsum_latewt <- function(df){ # function for taking the sqrt of the sum of the squared variable ranges
+    cols <- which(names(df) %in% vars)
+    var2 <- df[,cols]^2
+    var3 <- var2
+    for (vv in 1:length(vars)){
+      var3[,vv] <- var2[,vv] * abs(corstrim$cor[which(corstrim$var==vars[vv])])
+    }
+    out <- sqrt(rowSums(var3))
+  }
 nn <- length(unique(samp_df$num_stations))
 if (wt_opt ==1){
   samp_wt_wide <- samp_df %>% dplyr::select(-cor) %>% spread('var','var_range')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2 + windex_1000^2))
+  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = my_vsum(samp_wt_wide))
   
 } else if (wt_opt==2){
   samp_wt <- samp_df %>% dplyr::select(-cor) %>% spread('var','var_range')
@@ -103,22 +120,19 @@ if (wt_opt ==1){
   for (ss in 1:length(seas)){
     tab <- samp_wt %>% filter(season == seas[ss])
     corstrim <- cors %>% filter(season == seas[ss])
-    tab <- tab %>% mutate(vsum = sqrt((elev^2)*abs(corstrim$cor[which(corstrim$var=='elev')]) + (srad^2)*abs(corstrim$cor[which(corstrim$var=='srad')]) +
-                                        (m200^2)*abs(corstrim$cor[which(corstrim$var=='m200')]) + (m500^2)*abs(corstrim$cor[which(corstrim$var=='m500')]) +
-                                        (m1000^2)*abs(corstrim$cor[which(corstrim$var=='m1000')]) + (m5000^2)*abs(corstrim$cor[which(corstrim$var=='m5000')]) +
-                                        (windex_1000^2)*abs(corstrim$cor[which(corstrim$var=='windex_1000')])))
+    tab <- tab %>% mutate(vsum = my_vsum_latewt(tab))
     samp_wt_wide <- rbind(samp_wt_wide,tab)
   }
   
 } else if (wt_opt==3){
   samp_wt <- samp_df %>% mutate(var_range_wt = var_range*abs(1/cor))  # causes ranges to be larger when correlations are lower
   samp_wt_wide <- samp_wt  %>% dplyr::select(-cor,-var_range) %>% spread('var','var_range_wt')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2 + windex_1000^2))
+  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = my_vsum(samp_wt_wide))
   
 } else if (wt_opt==4){
   samp_wt <- samp_df %>% mutate(var_range_wt = var_range*abs(cor)) # causes ranges to be larger when correlations are lower
   samp_wt_wide <- samp_wt %>% dplyr::select(-cor,-var_range) %>% spread('var','var_range_wt')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2 + windex_1000^2))
+  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = my_vsum(samp_wt_wide))
   
 }
 
