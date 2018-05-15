@@ -5,11 +5,12 @@ library(tictoc)
 library(colorRamps)
 source('Code/all_samples_var_ranges.R')
 
-tvar <- 'tmin'
-meta <- df[which(!is.na(df$tmax)),]
+tvar <- 'tmax'
+names(df)[which(names(df)==tvar)] <- 'temp'
+meta <- df %>% filter(!is.na(tvar))
 total_stations <- length(unique(meta$station_id))
-vars <- c('elev','srad','m200','m500','m1000','m5000')
-opt <- c('max',rep('min',5))
+vars <- c('elev','srad','m200','m500','m1000','m5000','windex_1000')
+opt <- c('max',rep('min',(length(vars)-1)))
 seas <- unique(df$season)
 # scale: if scale=T (default), then normalize the vars
 scale=T
@@ -72,7 +73,7 @@ class(samp_df[,6]) <- 'numeric'
 #samp_df <- read.table(paste0(figdir,gsub(' ','',regname),'_allsamples_data_wrmse.csv'))
 class(samp_df[,1]) <- 'numeric'
 cors <- cortab %>% filter(tvar == 'tmax')
-samp_df <- left_join(samp_df,cors, by=c('season','var')) %>% select(-tvar)
+samp_df <- left_join(samp_df,cors, by=c('season','var')) %>% dplyr::select(-tvar)
 
 # rescale elevation ranges so that larger ranges get smaller numbers (like all the other variables)
 evr <- samp_df$var_range[which(samp_df$var == 'elev')] # elevation ranges
@@ -87,36 +88,37 @@ plot(ee) # the rescaled distribution
 samp_df$var_range[which(samp_df$var == 'elev')] <- devr-evr
 
 ### PLOTTING SUMMED WEIGHTS ###
-wt_opt <-   4 # specify a wt_scheme
+wt_opt <-   1 # specify a wt_scheme
 wt_schemes <- c('unwt','latewt','inversewt','wt')
 wt_name <- c('unweighted','late weighted','inverse weighted','weighted')
 
 nn <- length(unique(samp_df$num_stations))
 if (wt_opt ==1){
-  samp_wt_wide <- samp_df %>% select(-cor) %>% spread('var','var_range')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
+  samp_wt_wide <- samp_df %>% dplyr::select(-cor) %>% spread('var','var_range')
+  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2 + windex_1000^2))
   
 } else if (wt_opt==2){
-  samp_wt <- samp_df %>% select(-cor) %>% spread('var','var_range')
+  samp_wt <- samp_df %>% dplyr::select(-cor) %>% spread('var','var_range')
   samp_wt_wide <- data.frame(matrix(ncol=(ncol(samp_wt)+1),nrow=0)); names(samp_wt_wide) <- c(names(samp_wt),'vsum')
   for (ss in 1:length(seas)){
     tab <- samp_wt %>% filter(season == seas[ss])
     corstrim <- cors %>% filter(season == seas[ss])
     tab <- tab %>% mutate(vsum = sqrt((elev^2)*abs(corstrim$cor[which(corstrim$var=='elev')]) + (srad^2)*abs(corstrim$cor[which(corstrim$var=='srad')]) +
                                         (m200^2)*abs(corstrim$cor[which(corstrim$var=='m200')]) + (m500^2)*abs(corstrim$cor[which(corstrim$var=='m500')]) +
-                                        (m1000^2)*abs(corstrim$cor[which(corstrim$var=='m1000')]) + (m5000^2)*abs(corstrim$cor[which(corstrim$var=='m5000')])))
+                                        (m1000^2)*abs(corstrim$cor[which(corstrim$var=='m1000')]) + (m5000^2)*abs(corstrim$cor[which(corstrim$var=='m5000')]) +
+                                        (windex_1000^2)*abs(corstrim$cor[which(corstrim$var=='windex_1000')])))
     samp_wt_wide <- rbind(samp_wt_wide,tab)
   }
   
 } else if (wt_opt==3){
   samp_wt <- samp_df %>% mutate(var_range_wt = var_range*abs(1/cor))  # causes ranges to be larger when correlations are lower
-  samp_wt_wide <- samp_wt  %>% select(-cor,-var_range) %>% spread('var','var_range_wt')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
+  samp_wt_wide <- samp_wt  %>% dplyr::select(-cor,-var_range) %>% spread('var','var_range_wt')
+  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2 + windex_1000^2))
   
 } else if (wt_opt==4){
   samp_wt <- samp_df %>% mutate(var_range_wt = var_range*abs(cor)) # causes ranges to be larger when correlations are lower
-  samp_wt_wide <- samp_wt %>% select(-cor,-var_range) %>% spread('var','var_range_wt')
-  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2))
+  samp_wt_wide <- samp_wt %>% dplyr::select(-cor,-var_range) %>% spread('var','var_range_wt')
+  samp_wt_wide <- samp_wt_wide %>% mutate(vsum = sqrt(elev^2 + m1000^2 + m200^2 + m500^2 + m5000^2 + srad^2 + windex_1000^2))
   
 }
 
@@ -164,7 +166,7 @@ if(nn ==1){
 #### Experiment with plotting pdfs of lapse rates for categories of vsum values: ####
   sea <- "Annual"  
   samp_cat <- samp_wt_wide %>% filter(season==sea) %>% mutate(vsumcat = ceiling(vsum), rmsecat = ceiling(rmse)) %>% 
-    select(num_stations,lapse,vsumcat,rmsecat) %>% ungroup()
+    dplyr::select(num_stations,lapse,vsumcat,rmsecat) %>% ungroup()
   samp_cat$vsumcat <- factor(samp_cat$vsumcat, rev(sort(unique(samp_cat$vsumcat))))
   samp_cat$rmsecat <- factor(samp_cat$rmsecat, rev(sort(unique(samp_cat$rmsecat))))
   samp_cat$lapse <- pmin(samp_cat$lapse,10); samp_cat$lapse <- pmax(samp_cat$lapse,-20)
@@ -197,13 +199,22 @@ if(nn ==1){
     scale_fill_discrete(name='rmse\ncategory')
   ggsave(paste0(figdir,sea,'_',wt_schemes[wt_opt],'_lapse_density_by_rmse_fixedscale.jpeg'))
   
-
+  #look at how rmse and vsum compare:
+  ggplot() +
+    geom_density(data=samp_cat[which(samp_cat$rmsecat==1),], aes(x=lapse, fill=rmsecat), fill='blue', alpha=.6) + 
+    geom_density(data=samp_cat[which(samp_cat$vsumcat==1),], aes(x=lapse, fill=vsumcat), fill='red', alpha=.6) + 
+    facet_wrap(~num_stations, scales="free") +
+    labs(x='lapse rate (C/km)', title=paste0(sea,' ',wt_name[wt_opt],' pdfs based on rmse and sum of ranges'),
+         subtitle='blue=lowest rmse category, red=lowest sum of ranges category') 
+  ggsave(paste0(figdir,sea,'_',wt_schemes[wt_opt],'_lapse_density_by_rmse_and_vsum.jpeg'))
+  
+  
 
 #### Plot lapse rates for lowest vsum, lowest rmse for each sample size and season. With % range ####
   prng <- .05
-minlapse1 <- samp_wt_wide %>% group_by(num_stations,season) %>% filter(vsum == min(vsum)) %>% select(num_stations,lapse,vsum,rmse) %>% 
+minlapse1 <- samp_wt_wide %>% group_by(num_stations,season) %>% filter(vsum == min(vsum)) %>% dplyr::select(num_stations,lapse,vsum,rmse) %>% 
   group_by(num_stations,season,vsum) %>% summarise(lapse=round(mean(lapse),2), rmse=round(mean(rmse),2)) # add summarise call in case there are multiple instances of the minimum value
-minlapse2 <- samp_wt_wide %>% group_by(num_stations,season) %>% filter(rmse == min(rmse)) %>% select(num_stations,lapse,vsum,rmse) %>%
+minlapse2 <- samp_wt_wide %>% group_by(num_stations,season) %>% filter(rmse == min(rmse)) %>% dplyr::select(num_stations,lapse,vsum,rmse) %>%
   group_by(num_stations,season) %>% summarise(lapse=round(mean(lapse),2), rmse=round(mean(rmse),2)) %>% filter(!num_stations==2)
 minlapse1r <- samp_wt_wide %>% group_by(num_stations,season) %>% mutate(ncount =round(n()*prng)) %>% 
   group_by(num_stations,season) %>% filter(vsum %in% sort(vsum)[1:ncount]) %>% group_by(num_stations,season) %>% 
@@ -228,7 +239,12 @@ rm(minlapse1,minlapse2,minlapse1r,minlapse2r); gc()
 #  scale_color_discrete(name='RMSE')
 #ggsave(paste0(figdir,wt_schemes[wt_opt],'_similarity_v_samplesize.jpeg'))
 
+minl <- samp_wt_wide %>% group_by(num_stations,season) %>% mutate(ncount =round(n()*prng)) %>% 
+  group_by(num_stations,season) %>% filter(vsum %in% sort(vsum)[1:ncount]) %>% group_by(num_stations,season) %>% 
+  summarise(ymin=min(lapse), ymax=max(lapse), yrng =ymax-ymin, mvsum=mean(vsum))
 
+ggplot(minl) + geom_point(aes(x=mvsum, y=yrng, col=num_stations)) + facet_wrap(~season) +
+  scale_color_gradientn(colors=matlab.like(19))
 
 
 #### PLOTTING INDIVIDUAL VARIABLE WEIGHTS ###
@@ -337,8 +353,11 @@ ggplot() + annotate(geom='point', x=meta_trim$tmax,y=meta_trim$m500) +
     for (nn in 2:total_stations){
       station_ids <- t(combn(as.character(unique(meta_sc$station_id)),nn))[mins$vmin[nn-1],]
       meta_trim <- meta %>% filter(station_id %in% station_ids,season==seas[ss], year %in% yrs)
+      plot(meta_trim$tmax,meta_trim$elev)
       ns <- meta_trim %>% group_by(year) %>% summarise(lapse=summary(lm(tmax~elev))$coefficients[2]*1000)
       facor$R[which(facor$season==seas[ss] & facor$nn==nn)] <- cor(fa$lapse,ns$lapse)^2
+      plot(ns$year,ns$lapse, ylim=c(-7,1), type='l', col='blue')
+      lines(fa$year, fa$lapse)
     }
   }
   ggplot(facor) + geom_point(aes(x=nn, y=R, col=season))
