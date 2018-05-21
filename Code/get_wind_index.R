@@ -1,5 +1,18 @@
+# NOTE: I had a really hard time getting this script to run without my computer running out of storage or R crashing.  
+# I ended up running it in R (not RStudio).  
+# I only ran one buffer at a time and I restarted R between each run. 
+#Saving the 'gradients' and 'winds' outputs seemed to help, and deleting temporary files throughout kept my computer from running out of storage.
+# running the Daisy Disk application was helpful for trouble shooting the storage issue.  It appears that the raster operations were creating
+# very large amounts of temporary files (100's of GBs).
 
-get_wind_index <- function(tab,buffer){
+
+#tab <- master; rm(master); gc()
+#save_dir='Data/Windex/'
+
+
+
+
+get_wind_index <- function(tab,buffer,save_dir){
 
   library(plyr)
   library(dplyr)
@@ -10,7 +23,7 @@ get_wind_index <- function(tab,buffer){
   library(tidyr)
   
   # set the stations and buffers to use:
-  meta <- tab %>% dplyr::select(station_id, lat, lon, elev) %>% distinct() # locations of stations
+  meta <- tab %>% group_by(add=F) %>% dplyr::select(station_id, lat, lon, elev) %>% distinct() # locations of stations
   #buffer <- c(10000) # in meters, will be the radius around each point
   
   # read in files:
@@ -18,6 +31,7 @@ get_wind_index <- function(tab,buffer){
   dirr <- 'Data/era-i-winds/'
   files <- list.files(dirr, pattern='winds')
   year <- substr(files,6,9)
+  rasterOptions() # see where raster is writing temporary files to
   
   # set up station points layer to work with dem:
   myPoints <- data.frame(meta$lon, meta$lat)
@@ -57,7 +71,9 @@ get_wind_index <- function(tab,buffer){
     ygrad <- grads$rast.grad.y[overs$cells]
   
     gradients <- data.frame(meta,xgrad=xgrad,ygrad=ygrad)
-  
+    rm(grads,xgrad,ygrad,overs,demagg); gc()
+    write.table(gradients,paste0(save_dir,'dem_gradients_',buffer[bb],'.txt'))
+    save(gradients,file=paste0(save_dir,'dem_gradients_',buffer[bb],'.RData'))
   
   #### GET WIND VECTORS ####
     uwindtab <- data.frame(matrix(nrow=nrow(meta), ncol=(length(year)*12)))
@@ -70,8 +86,8 @@ get_wind_index <- function(tab,buffer){
       
     
       # interpolate to a finer grid:
-      intlat <- round(dlat/buffer)
-      intlon <- round(dlon/buffer)
+      intlat <- round(dlat/buffer[bb])
+      intlon <- round(dlon/buffer[bb])
       #int <- round(dist_meters/buffer)
       #newex <- raster(nrow=dim(uwind)[1]*int, ncol=dim(uwind)[2]*int, ext=extent(uwind))
       newex <- raster(nrow=dim(uwind)[1]*intlat, ncol=dim(uwind)[2]*intlon, ext=extent(uwind))
@@ -88,19 +104,34 @@ get_wind_index <- function(tab,buffer){
       vwindtab[,(1+(yy-1)*12):(yy*12)] <- vwindpts[,2:13]
       names(vwindtab)[(1+(yy-1)*12):(yy*12)] <- names(vwindpts[,2:13])
       
+      removeTmpFiles(h=.3) # remove temporary files that are older than .3 hour
+      gc()
     }
-    # organize the winds table:
-    uwindtab <- cbind(meta, uwindtab)
-    vwindtab <- cbind(meta, vwindtab)
+
+    rm(uwindpts,vwindpts,ufine,vfine,newex,uwind,vwind); gc()
+    
+    #organize the winds table:
+    uwindtab <- data.frame(bind_cols(meta, uwindtab))
+    vwindtab <- data.frame(bind_cols(meta, vwindtab))
     uw <- uwindtab %>% gather('date','uwind', (ncol(meta)+1):ncol(uwindtab))
-    vw <- vwindtab %>% gather('date','vwind', (ncol(meta)+1):ncol(vwindtab))
-    winds <- left_join(uw,vw, by=c('station_id','lat','lon','elev','date')); rm(uw,vw); gc()
-    winds <- winds %>% separate('date', into=c('year','month'), sep=5)
-    winds$year <- substr(winds$year,2,5)
-    winds$month <- substr(winds$month,2,3)
+    vw <- vwindtab %>% gather('date','vwind', (ncol(meta)+1):ncol(vwindtab)) # this takes a lot of memory
+    rm(uwindtab,vwindtab); gc()
+    #winds <- left_join(uw,vw, by=c('station_id','lat','lon','elev','date')); 
+    # since we know these are the same, let's use a simpler joining method:
+    uw$vwind <- vw$vwind; rm(vw); gc()
+    winds <- uw; rm(uw); gc()
+    removeTmpFiles(h=.2) # remove temporary files that are older than .2 hour
+    
+    #winds <- winds %>% separate('date', into=c('year','month'), sep=5)
+    winds$year <- substr(winds$date,2,5)
+    winds$month <- substr(winds$date,7,8)
+    winds <- winds %>% dplyr::select(-date)
+    write.table(winds, paste0(save_dir,'wind_vectors_',buffer[bb],'.txt'))
+    save(winds,file=paste0(save_dir,'wind_vectors_',buffer[bb],'.RData'))
     
     # combine gradient and winds tables:
     tab <- left_join(gradients, winds, by=c('station_id','lat','lon','elev'))
+    rm(gradients,winds); gc()
     tab <- tab %>% mutate(windex = (uwind*xgrad) + (vwind*ygrad)) # yearly and monthly values of windex for each station
     # save all the information, including topographic gradients and wind vectors:
     #write.table(tab, paste0('Data/Windex/windex_',buffer[bb],'_topowx.txt'))
@@ -117,6 +148,11 @@ get_wind_index <- function(tab,buffer){
   out <-out %>% left_join(seasons, by = "month") %>% dplyr::select(-month)
   out <- out %>% group_by(station_id,season,year) %>% summarise_all(mean)
     
+  
+  write.table(out, paste0(save_dir,'windex_',buffer[bb],'.txt'))
+  
+  removeTmpFiles(h=.1) # remove temporary files that are older than 0.1 hour
+  
   return(out) # returns windex value for each station, year, and season
 } # end function
 
