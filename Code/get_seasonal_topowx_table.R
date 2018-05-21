@@ -117,9 +117,24 @@ cal <- seq(as.Date(startdate),as.Date(enddate),'days')
   
 # 3. Join the Tmax and Tmin tables:
   master <- full_join(tmax_master,tmin_master, by=c('station_id','network','lat','lon','elev','year','season'))
-  rm(tmax_master,tmin_master);gc()
+  rm(tmax_master,tmin_master,get_topowx_data);gc()
+  
+  ######## new code:
+  #source('Code/prep_station_data.R')
+  #dat <- prep_station_data(master, save_dir='Data/TopoWx/GHCN_raw_1980_summary_wi.txt')
+    
+  # actually, just run get_wind_index for now
+  #source('Code/get_wind_index.R')
+  buffer <- c(1000,5000,10000,20000,40000)
+  for (bb in 1:length(buffer)){
+    tic(paste0('buffer ',buffer[bb]))
+    out <- get_wind_index(master,buffer[bb],save_dir='Data/Windex/')
+    write.table(out, paste0('Data/Windex/windex_',buffer[bb],'_topowx_GHCN_raw.txt'))
+    toc()
+  }
   
   
+  ######## old code:
 # 4. Add TPI data:
   trim_data <- master %>% group_by(station_id,add=F)%>% select(station_id,lat,lon,elev)  %>% distinct()
   
