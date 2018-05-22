@@ -8,8 +8,11 @@
 
 prep_station_data = function(data, save_dir=F){
   
-  if (!all(c('station_id','lat','lon','elev','month') %in% names(data))){
+  if (!all(c('station_id','lat','lon','elev') %in% names(data))){
     print('Error: dataframe called data must contain columns station_id, lat, lon, elev, and month')
+  }
+  if (! ('season' %in% names(data) | 'month' %in% names(data))){
+    print('Error: dataframe called data must either contain a month column or a season column')
   }
   
   trim_data <- data %>% dplyr::select(station_id,lat,lon,elev) %>% distinct()
@@ -25,18 +28,22 @@ prep_station_data = function(data, save_dir=F){
   
   print('Grabbing seasons...')
   # Get seasons:
-  if (is.numeric(data$month) | nchar(data$month[1])==2){
-    seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),
-                          'Summer'=c('06','07','08'), , 'Annual'=c('01','02','03','04','05','06','07','08','09','10','11','12'))
-    seasons <- gather(seasons,season,month) %>% distinct()
-    data <- data %>% left_join(seasons, by = "month")
-  } else if (nchar(data$month[1])==3) {
-    seasons <- data.frame('Fall'=c('sep','oct','nov'), 'Winter'=c('dec','jan','feb'),'Spring'=c('mar','apr','may'),
-                          'Summer'=c('jun','jul','aug'), 'Annual'=c('jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'))
-    seasons <- gather(seasons,season,month) %>% distinct()
-    data <- data %>% left_join(seasons, by = "month")
+  if ('season' %in% names(data)){
+    
   } else {
-    print('Error: not sure how to convert month field to seasons.  Try one of these formats: jan or 01')
+    if (is.numeric(data$month) | nchar(data$month[1])==2){
+      seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),
+                            'Summer'=c('06','07','08'), 'Annual'=c('01','02','03','04','05','06','07','08','09','10','11','12'))
+      seasons <- gather(seasons,season,month) %>% distinct()
+      data <- data %>% left_join(seasons, by = "month")
+    } else if (nchar(data$month[1])==3) {
+      seasons <- data.frame('Fall'=c('sep','oct','nov'), 'Winter'=c('dec','jan','feb'),'Spring'=c('mar','apr','may'),
+                            'Summer'=c('jun','jul','aug'), 'Annual'=c('jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'))
+      seasons <- gather(seasons,season,month) %>% distinct()
+      data <- data %>% left_join(seasons, by = "month")
+    } else {
+      print('Error: not sure how to convert month field to seasons.  Try one of these formats: jan or 01')
+    }
   }
   # take all the December obs and make year=year+1 then run the season_means so that december gets grouped with winter of the correct year
   #tm$year[which(tm$month==12)] <- as.character(as.numeric(tm$year[which(tm$month==12)]) +1)
@@ -62,11 +69,22 @@ prep_station_data = function(data, save_dir=F){
   
   print('Grabbing windices...')
   # Get windices:
-  source('Code/get_wind_index.R')
-  buffers <- c(500, 1000, 5000, 10000, 30000) # in meters
-  wi <- get_wind_index(data,buffers)
-  class(wi$year) <- 'integer'
-  data <- left_join(data,wi,by=c('station_id','season','year'))
+  #source('Code/get_wind_index.R')
+  winddir <- 'Data/Windex/'
+  buffer <- c(500,1000,5000,10000,20000,40000)# in meters
+  for (bb in 1:length(buffer)){
+    wind_sub <- read.table(paste0(winddir,'windex_',buffer[bb],'.txt'), stringsAsFactors=F)
+    if (!bb == 1){
+      winds <- left_join(winds,wind_sub, by=c('station_id','season','year'))
+    } else {
+      winds <- wind_sub
+    }
+  }
+  write.table(winds, 'Data/Windex/windices_TopoWx.txt')
+  
+  #wi <- get_wind_index(data,buffers)
+  #class(wi$year) <- 'integer'
+  data <- left_join(data,winds,by=c('station_id','season','year'))
   
   
   
