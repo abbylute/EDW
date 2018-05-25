@@ -20,10 +20,15 @@ outfn <- paste0('Data/TopoWx/GHCN_',datatype,'_',substr(startdate,1,4),'_summary
 
 
 codedir <- 'Code/'
-season_names <- c('Annual','Winter','Spring','Summer','Fall')
-seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),'Summer'=c('06','07','08'))
+# old way, this was missing the annual months and wasn't an ideal way to do it. actually it accounts for annual separately later on
+season_names <- c('Winter','Spring','Summer','Fall')
+seasons <- data.frame('Fall'=c('09','10','11'), 'Winter'=c('12','01','02'),'Spring'=c('03','04','05'),
+                     'Summer'=c('06','07','08'))
 seasons <- gather(seasons,season,month)
 
+#seasons <- c(rep(c('Spring','Summer','Fall','Winter'),each=3),rep('Annual',12))
+#seasons <- data.frame(cbind(seasons, c('03','04','05','06','07','08','09','10','11','12','01','02','01','02','03','04','05','06','07','08','09','10','11','12')),stringsAsFactors=F)
+#names(seasons) <- c('season','month')
 
 # 1. Get TopoWx data
 #.......................................................................
@@ -62,10 +67,17 @@ cal <- seq(as.Date(startdate),as.Date(enddate),'days')
   tm <- tm %>% filter(!(year==2017 & month==12)) # remove the december 2016 observations which would be grouped with winter 2017 since we don't have all the data for winter 2017
   
   # Calculate seasonal mean temperature values:
+  #season_means1 <- tm %>%
+  #  group_by(station_id,season,year) %>%
+  #  mutate(tmax = mean(temperature,na.rm=T)) %>% dplyr::select(-temperature,-date,-month,-day)
+  #season_means1 <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(tmax))
+  
   season_means <- tm %>%
-    group_by(station_id,season,year) %>%
-    mutate(tmax = mean(temperature,na.rm=T)) %>% dplyr::select(-temperature,-date,-month,-day)
-  season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(tmax))
+    group_by(station_id,season,year,network,lat,lon,elev) %>%
+    summarise(tmax = case_when(
+      length(which(is.na(temperature))) > 20 ~ as.numeric(NA), # if a given season is missing more than 20 daily values then don't calculate a seasonal mean it
+      length(which(is.na(temperature))) <= 20 ~ mean(temperature,na.rm=T))) 
+  
 
   # Calculate water year mean temperature values:
   # first, bump oct and nov to the next year (already did this for december above)
@@ -73,8 +85,14 @@ cal <- seq(as.Date(startdate),as.Date(enddate),'days')
   tma$year[which(tma$month %in% c(10,11))] <- as.character(as.numeric(tma$year[which(tma$month %in% c(10,11))]) +1)
   tma <- tma %>% filter(!(year==2017 & month %in% c(10,11))) # remove the oct and nov 2016 observations which would be grouped with wy 2017 since we don't have all the data for wy 2017
   
-  annual_means <- tma %>% group_by(station_id,year) %>% mutate(tmax=mean(temperature, na.rm=T)) %>%
-    mutate(season='Annual') %>% dplyr::select(-c(month,day,date,temperature)) %>% distinct()
+  #annual_means1 <- tma %>% group_by(station_id,year) %>% mutate(tmax=mean(temperature, na.rm=T)) %>%
+  #  mutate(season='Annual') %>% dplyr::select(-c(month,day,date,temperature)) %>% distinct()
+ 
+  annual_means <- tma %>% group_by(station_id,year,network,lat,lon,elev) %>% 
+    summarise(tmax = case_when(
+      length(which(is.na(temperature))) > 60 ~ as.numeric(NA),
+      length(which(is.na(temperature))) <= 60 ~ mean(temperature, na.rm=T))) %>%
+    mutate(season='Annual') 
   
   tmax_master <- full_join(season_means, annual_means, by=c('station_id','network','lat','lon','elev','year','season','tmax'))
   rm(tm,tma,season_means,annual_means,tmax,tmax_meta); gc()
@@ -97,10 +115,16 @@ cal <- seq(as.Date(startdate),as.Date(enddate),'days')
   tm <- tm %>% filter(!(year==2017 & month==12)) # remove the december 2016 observations which would be grouped with winter 2017 since we don't have all the data for winter 2017
   
   # Calculate seasonal mean temperature values:
+  #season_means <- tm %>%
+  #  group_by(station_id,season,year) %>%
+  #  mutate(tmin = mean(temperature,na.rm=T)) %>% dplyr::select(-temperature,-date,-month,-day)
+  #season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(tmin))
+  
   season_means <- tm %>%
-    group_by(station_id,season,year) %>%
-    mutate(tmin = mean(temperature,na.rm=T)) %>% dplyr::select(-temperature,-date,-month,-day)
-  season_means <- season_means %>% group_by(station_id,season,year) %>% slice(which.min(tmin))
+    group_by(station_id,season,year,network,lat,lon,elev) %>%
+    summarise(tmin = case_when(
+      length(which(is.na(temperature))) > 20 ~ as.numeric(NA), # if a given season is missing more than 20 daily values then don't calculate a seasonal mean it
+      length(which(is.na(temperature))) <= 20 ~ mean(temperature,na.rm=T))) 
   
   # Calculate water year mean temperature values:
   # first, bump oct and nov to the next year (already did this for december above)
@@ -108,8 +132,14 @@ cal <- seq(as.Date(startdate),as.Date(enddate),'days')
   tma$year[which(tma$month %in% c(10,11))] <- as.character(as.numeric(tma$year[which(tma$month %in% c(10,11))]) +1)
   tma <- tma %>% filter(!(year==2017 & month %in% c(10,11))) # remove the oct and nov 2016 observations which would be grouped with wy 2017 since we don't have all the data for wy 2017
   
-  annual_means <- tma %>% group_by(station_id,year) %>% mutate(tmin=mean(temperature, na.rm=T)) %>%
-    mutate(season='Annual') %>% dplyr::select(-c(month,day,date,temperature)) %>% distinct()
+  #annual_means <- tma %>% group_by(station_id,year) %>% mutate(tmin=mean(temperature, na.rm=T)) %>%
+  #  mutate(season='Annual') %>% dplyr::select(-c(month,day,date,temperature)) %>% distinct()
+  
+  annual_means <- tma %>% group_by(station_id,year,network,lat,lon,elev) %>% 
+    summarise(tmin = case_when(
+      length(which(is.na(temperature))) > 60 ~ as.numeric(NA),
+      length(which(is.na(temperature))) <= 60 ~ mean(temperature, na.rm=T))) %>%
+    mutate(season='Annual') 
   
   tmin_master <- full_join(season_means, annual_means, by=c('station_id','network','lat','lon','elev','year','season','tmin'))
   rm(tm,tma,season_means,annual_means,tmin,tmin_meta); gc()
@@ -125,7 +155,7 @@ cal <- seq(as.Date(startdate),as.Date(enddate),'days')
     
   # actually, just run get_wind_index for now
   #source('Code/get_wind_index.R')
-  buffer <- c(1000,5000,10000,20000,40000)
+  buffer <- c(500,1000,5000,10000,20000,40000)
   for (bb in 1:length(buffer)){
     tic(paste0('buffer ',buffer[bb]))
     out <- get_wind_index(master,buffer[bb],save_dir='Data/Windex/')
