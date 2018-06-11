@@ -71,6 +71,9 @@ get_topowx_data <- function(varname, startdate, enddate,
   oct1 <- which(substr(cal,6,10)=='10-01')
   sep30 <- which(substr(cal,6,10)=='09-30')
   which_yrs_complete <- array(data=NA, dim = c(nstations,ny)) # stations, years, tmax type
+  if(oct1[1]>sep30[1]){  # if the date range is such that sep30 occurs before teh first instance of oct1, then shift the sep30 vector to only use those after the first oct1
+    sep30 <- sep30[-1]
+  }
   
   for (yy in 1:ny){ # cycle through years
     which_yrs_complete[,yy] <- apply(temp[,oct1[yy]:sep30[yy]], 1, function(x) (length(which(!is.na(x)))/length(x)>=min_pdays))
